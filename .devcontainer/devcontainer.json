@@ -1,0 +1,30 @@
+{
+  "name": "World of Codes",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+
+  // Forward Vite dev server (5173) and Colyseus multiplayer server (2567)
+  "forwardPorts": [5173, 2567],
+
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "openBrowser"
+    },
+    "2567": {
+      "label": "Colyseus Server",
+      "onAutoForward": "silent"
+    }
+  },
+
+  // Install dependencies automatically when the container is created
+  "postCreateCommand": "npm install",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  }
+}
