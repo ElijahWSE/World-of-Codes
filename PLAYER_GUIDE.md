@@ -9,8 +9,8 @@ Your room is built by AI based on a theme you choose — no coding required.
 ## How It Works
 
 1. You pick a theme for your room (a forest, a haunted mansion, a candy land — anything)
-2. You copy-paste a prompt into Gemini, tell it your theme, and it writes the room code
-3. You send me the code file, I review it and add it to the game
+2. You use Gemini in two steps to design and export your room code
+3. You send me the final code, I review it and add it to the game
 4. Your room appears in the town square with your name on the door
 
 ---
@@ -24,126 +24,133 @@ Pick a creative name and visual theme for your room. Examples:
 - "Ancient Library" — dark stone floor, floating books
 
 ### Step 2 — Open Gemini
-Go to [gemini.google.com](https://gemini.google.com) and start a new conversation.
-
-### Step 3 — Copy and paste the prompt below
-Replace `[YOUR THEME HERE]` with your actual theme, then send the whole thing to Gemini.
+Go to [gemini.google.com](https://gemini.google.com) and start a **new conversation**.
 
 ---
 
-## The Gemini Prompt (copy this exactly)
+## Prompt 1 — Design & Preview
+
+Use this prompt first. It lets Gemini build a working preview so you can **see your room
+and tweak the design** until you're happy. Replace `[YOUR THEME HERE]` with your theme.
 
 ```
-I need you to write a player room for a 2D top-down browser game built with Phaser.js.
+I want to design a room for a 2D top-down browser game built with Phaser.js.
+My room theme is: [YOUR THEME HERE]
 
-The room must follow this EXACT template structure. Fill in the hooks only.
-Do not add any imports, require() calls, or outside libraries.
-Do not use fetch(), localStorage, document, or any browser API.
-Do not use global variables (no window.x, no globalThis.x).
-Only use the `scene` object passed into each hook.
+Create an interactive preview of this room using a mock Phaser scene so I can see
+what it looks like. The room should:
+- Have a distinct visual style matching my theme (use rectangles, circles, stars, and text)
+- Include animated elements (tweens for movement, blinking, spinning, etc.)
+- Have an EXIT zone at the bottom centre of the screen (around x=400, y=560)
 
-Available on scene:
-  scene.add         — create rectangles, text, images, shapes
-  scene.physics     — create physics-enabled objects with collision
-  scene.input       — keyboard and mouse input
-  scene.cameras     — camera control
-  scene.time        — timers and delayed events
-  scene.tweens      — smooth animations
-  scene.roomData    — use this object to store your room's state between frames
-  scene.exitRoom()  — call this to send the player back to the town square
+Store all the actual room logic inside a const called roomCode with these exact properties:
+  name       — a string with the room's display name
+  onLoad     — function(scene) for loading assets (leave empty if using only shapes)
+  onCreate   — function(scene) for building the room
+  onUpdate   — function(scene) for per-frame animations and the exit check
+  onExit     — function(scene) for cleanup (set scene.roomData = null)
 
-IMPORTANT: If you load any images, prefix every asset key with the room name
-(e.g. 'myroom_floor', not 'floor') to avoid cache conflicts with other rooms.
+Inside onCreate, always include this exit trigger block at the end:
+  const exitZone = scene.add.zone(400, 555, 120, 40);
+  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);
+  scene.roomData.exitZone = exitZone;
+  scene.roomData.player = scene.player;
 
-Include an exit trigger: a visible object the player can walk into that calls
-scene.exitRoom() to return them to the town square.
+Inside onUpdate, always include this exit check:
+  const d = scene.roomData;
+  if (d.player && d.exitZone) {
+    const hit = Phaser.Geom.Intersects.RectangleToRectangle(
+      d.player.getBounds(), d.exitZone.getBounds()
+    );
+    if (hit) scene.exitRoom();
+  }
 
-Return ONLY the completed JavaScript file with no explanation. No markdown code
-fences, no commentary — just the raw .js file content.
+Show me the preview so I can test it and ask for changes.
+```
 
-Here is the template to fill in:
+### Step 3 — Tweak your room
+Play around with the preview in Gemini. Ask it to:
+- Change colours, sizes, or positions of objects
+- Add or remove decorations
+- Make animations faster or slower
+- Add text, signs, or welcome messages
+
+Keep going until you're happy with how it looks.
 
 ---
-// The ONLY thing you interact with is the `scene` object passed into each hook.
-//   scene.add        — create visual objects (rectangles, text, images, stars, circles)
-//   scene.physics    — create physics-enabled objects that can collide
-//   scene.input      — detect keyboard and mouse input
-//   scene.cameras    — control the camera
-//   scene.time       — set up timers and delayed events
-//   scene.tweens     — animate objects smoothly
-//   scene.roomData   — store anything your room needs between frames
-//   scene.player     — reference to the local player sprite (a Phaser GameObject)
-//   scene.exitRoom() — call this to return the player to the town square
-//
-// RULES:
-//   ✅ DO: Create objects, text, shapes, and interactions inside the hooks
-//   ✅ DO: Store state in scene.roomData (initialise it as {} in onCreate)
-//   ✅ DO: Include an exit trigger that calls scene.exitRoom()
-//   ❌ DON'T: import any outside libraries or use require()
-//   ❌ DON'T: Use fetch(), XMLHttpRequest, or access the network
-//   ❌ DON'T: Use global variables (window.anything, globalThis.anything)
-//   ❌ DON'T: Use document, localStorage, or any browser API outside of scene
-//
-// CANVAS SIZE: 800 wide × 600 tall. Place objects within these bounds.
-// ASSET KEYS: if you call scene.load.image(), prefix the key with your room
-//   name to avoid cache conflicts. e.g. 'myroom_floor', not 'floor'.
 
-export const name = 'My Room';
+## Prompt 2 — Export for Submission
+
+Once you're happy with your design, send this second prompt **in the same Gemini conversation**.
+Do not change anything in this prompt — copy it exactly.
+
+```
+Now take the room logic from the roomCode object above and rewrite it using the
+exact template below. Fill in only the body of each function with the room code
+you already designed. Do not change the structure.
+
+STRICT RULES for the output:
+  ✅ Return ONLY what is between the template markers — nothing else
+  ✅ Keep all 5 export statements exactly as named
+  ✅ Keep the exit trigger block in onCreate exactly as shown
+  ✅ Keep the exit check block in onUpdate exactly as shown
+  ❌ Do NOT add import, require(), or export default at the top
+  ❌ Do NOT wrap in React, HTML, or any framework
+  ❌ Do NOT include any explanation, commentary, or code fences
+  ❌ Do NOT use fetch(), document, localStorage, or window
+
+--- START OF TEMPLATE ---
+
+export const name = 'My Room'; // ← use your room name
 
 export function onLoad(scene) {
-  // Load images or audio here. Leave empty if you only use shapes and text.
 }
 
 export function onCreate(scene) {
   scene.roomData = {};
-  // Build your room here. Runs once when the player enters.
-  // Use scene.add.rectangle(x, y, w, h, color) for solid shapes.
-  // Use scene.add.text(x, y, 'string', { fontSize: '20px', fill: '#fff' }) for text.
-  // Use scene.add.circle(x, y, radius, color) for circles.
-  // Use scene.add.star(x, y, points, innerR, outerR, color) for star shapes.
-  // For the exit trigger, create a zone and check overlap in onUpdate:
-  //   const exitZone = scene.add.zone(x, y, width, height);
-  //   scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);
-  //   scene.roomData.exitZone = exitZone;
-  //   scene.roomData.player = scene.player;
+
+  // ── your room design goes here ────────────────────────────────────────
+
+
+  // ── exit trigger (keep this block exactly as-is) ──────────────────────
+  scene.add.rectangle(400, 570, 120, 30, 0x333333);
+  scene.add.text(400, 570, 'EXIT', { fontSize: '16px', fill: '#ffffff' }).setOrigin(0.5);
+  const exitZone = scene.add.zone(400, 555, 120, 40);
+  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);
+  scene.roomData.exitZone = exitZone;
+  scene.roomData.player = scene.player;
 }
 
 export function onUpdate(scene) {
-  // Runs every frame (~60fps). Keep this lean.
-  // Check for exit overlap like this:
-  //   const d = scene.roomData;
-  //   if (d.player && d.exitZone) {
-  //     const hit = Phaser.Geom.Intersects.RectangleToRectangle(
-  //       d.player.getBounds(), d.exitZone.getBounds()
-  //     );
-  //     if (hit) scene.exitRoom();
-  //   }
+  // ── exit check (keep this block exactly as-is) ────────────────────────
+  const d = scene.roomData;
+  if (d.player && d.exitZone) {
+    const hit = Phaser.Geom.Intersects.RectangleToRectangle(
+      d.player.getBounds(), d.exitZone.getBounds()
+    );
+    if (hit) scene.exitRoom();
+  }
+
+  // ── per-frame animation logic goes here ───────────────────────────────
+
 }
 
 export function onExit(scene) {
-  // Clean up timers and tweens here. scene.add objects are destroyed automatically.
   scene.roomData = null;
 }
----
 
-My room theme is: [YOUR THEME HERE]
+--- END OF TEMPLATE ---
 ```
 
----
-
-### Step 4 — Save the file Gemini gives you
-Copy everything Gemini returns and save it as a `.js` file.
-Name it something simple like `my-cool-room.js`.
-
-### Step 5 — Send it to me
-Send me the `.js` file (Discord, email, or however we're in contact).
+### Step 4 — Send it to me
+Copy everything Gemini returns from Prompt 2 and send it to me.
 I'll review the code, add it to the game, and let you know when your door appears.
 
 ---
 
 ## What Rooms CAN Do
 
-- Add a colored floor, walls, and decorations using rectangles and shapes
+- Add a coloured floor, walls, and decorations using rectangles and shapes
 - Display text (welcome messages, signs, story beats)
 - Create simple animations (spinning objects, blinking lights, moving platforms)
 - Add interactive triggers (walk into something to make it react)
@@ -168,7 +175,7 @@ without breaking other players' experiences.
 Usually within a day or two — I review each file manually before adding it.
 
 **Can I update my room after it's added?**
-Yes! Just generate a new version with Gemini and send it to me again.
+Yes! Just go through the two prompts again with your changes and send me the new output.
 
 **What if my room has a bug?**
 The game is designed to handle broken rooms gracefully. If your room crashes,

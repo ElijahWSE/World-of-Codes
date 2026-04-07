@@ -15,6 +15,9 @@ import { WorldState } from '../shared/schema.js';
 // ── Player room imports ───────────────────────────────────────────────────────
 // Add one import per room file here. Then reference it in DOORS below.
 import * as ExampleRoom from '../rooms/example-room.js';
+import * as UnicornGarden from '../rooms/unicorn-garden.js';
+import * as TropicalSurfHaven from '../rooms/tropical-surf-haven.js';
+import * as VibrantCityCenter from '../rooms/vibrant-city-center.js';
 
 // ── World Layout Constants ─────────────────────────────────────────────────
 const WORLD_W   = 1600;  // total world width in pixels
@@ -36,9 +39,9 @@ const HALF_DOOR = DOOR_W / 2; // 48
 // Adding a room = one import above + one roomModule line here. Nothing else changes.
 const DOORS = [
   { key: 'room1', label: ExampleRoom.name, wall: 'north', x: MID_X,               y: WALL_T / 2,          roomModule: ExampleRoom },
-  { key: 'room2', label: 'Room 2',         wall: 'east',  x: WORLD_W - WALL_T / 2, y: MID_Y },
-  { key: 'room3', label: 'Room 3',         wall: 'south', x: MID_X,               y: WORLD_H - WALL_T / 2 },
-  { key: 'room4', label: 'Room 4',         wall: 'west',  x: WALL_T / 2,          y: MID_Y },
+  { key: 'room2', label: UnicornGarden.name, wall: 'east',  x: WORLD_W - WALL_T / 2, y: MID_Y, roomModule: UnicornGarden },
+  { key: 'room3', label: TropicalSurfHaven.name, wall: 'south', x: MID_X, y: WORLD_H - WALL_T / 2, roomModule: TropicalSurfHaven },
+  { key: 'room4', label: VibrantCityCenter.name, wall: 'west', x: WALL_T / 2, y: MID_Y, roomModule: VibrantCityCenter },
 ];
 
 // Always connect to the same origin as the page.
