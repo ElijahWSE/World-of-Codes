@@ -180,28 +180,30 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 Goal: A password-protected web UI so rooms can be added, swapped, and removed
 without touching Codespace or editing files manually.
 
-You remain the gatekeeper — players submit code, you review and approve.
+You remain the gatekeeper — players submit code via Gemini, you review and approve.
 
-1. **Submission portal** (player-facing):
-   - Simple web form: player enters their name, room theme, and pastes their Gemini-generated JS
-   - Submitted rooms go into a pending queue (stored server-side)
-   - Player sees a confirmation message
+Two implementation options — decide before starting:
 
-2. **Admin panel** (your private UI, password-protected):
-   - Lists all pending room submissions
-   - Shows the code with syntax highlighting for review
-   - Approve button: writes the file to `src/rooms/`, hot-reloads the server
-   - Reject button: removes from queue, optionally notifies the player
-   - Active rooms list: shows which doors are currently occupied, with a Remove button
+#### Option A — Full Dynamic System (larger build)
+- Admin panel + dynamic room loading + hot reload
+- Rooms are loaded at runtime, no Vite restart needed after approving
+- Touches core architecture: replaces static imports in WorldScene.js with a
+  JSON config and dynamic imports
+- Parts to build:
+  1. Password-protected admin panel (paste code, approve/reject, remove active rooms)
+  2. Server-side room registry (JSON config maps door keys to room files)
+  3. Dynamic import system replacing static WorldScene.js imports
+  4. Hot reload signal so door labels update in-game without a page refresh
 
-3. **Server-side room registry**:
-   - Instead of static imports in `WorldScene.js`, rooms are loaded dynamically at runtime
-   - A JSON config file maps door keys to room file paths
-   - Adding/removing a room = updating the config + writing/deleting a file (no code changes)
-
-4. **Hot reload**:
-   - When a room is approved or removed, the server signals the Vite/Colyseus process to reload
-   - Players in the town square see the door label update without a full page refresh
+#### Option B — Simple Admin Panel (smaller build, recommended first)
+- Admin panel only — you paste submitted code, it writes the file and updates WorldScene.js
+- Still requires a Vite restart after approving a room (one command)
+- Does NOT change the game engine architecture
+- Parts to build:
+  1. Password-protected admin page (paste code, pick which door, click Approve)
+  2. Server route that writes the .js file and patches the WorldScene.js import + DOORS entry
+  3. Reject/remove button that deletes the file and reverts WorldScene.js
+  4. Simple active rooms list showing which doors are occupied
 
 ---
 
