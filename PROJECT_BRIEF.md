@@ -108,7 +108,7 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
    - Console log when player walks into a door
    - "You" name tag floating above local player
 
-2. Colyseus multiplayer:
+
    - `server/index.js` — WorldRoom tracks all players (x, y, name) via MapSchema
    - Other players rendered as gray 32×32 rectangles with name labels
    - Positions synced in real time via `move` messages
@@ -125,7 +125,7 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 
 ---
 
-### PHASE 3 — ROOM TEMPLATE & PLAYER GUIDE ⏳ TODO
+### PHASE 3 — ROOM TEMPLATE & PLAYER GUIDE ✅ COMPLETE
 
 1. Finalize `src/rooms/_template.js`:
    - All 5 hooks (name, onLoad, onCreate, onUpdate, onExit)
@@ -150,7 +150,7 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 
 ---
 
-### PHASE 4 — ROOM LOADER ⏳ TODO
+### PHASE 4 — ROOM LOADER ✅ COMPLETE
 
 1. Finalize `src/room-loader/RoomLoader.js`:
    - Validate all 5 hooks (name = string, rest = functions)
@@ -172,6 +172,36 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
    - On return: spawn player at the door they entered
 
 4. Register `RoomScene` in `main.js`
+
+---
+
+### PHASE 5 — ADMIN PANEL FOR ROOM MANAGEMENT ⏳ TODO
+
+Goal: A password-protected web UI so rooms can be added, swapped, and removed
+without touching Codespace or editing files manually.
+
+You remain the gatekeeper — players submit code, you review and approve.
+
+1. **Submission portal** (player-facing):
+   - Simple web form: player enters their name, room theme, and pastes their Gemini-generated JS
+   - Submitted rooms go into a pending queue (stored server-side)
+   - Player sees a confirmation message
+
+2. **Admin panel** (your private UI, password-protected):
+   - Lists all pending room submissions
+   - Shows the code with syntax highlighting for review
+   - Approve button: writes the file to `src/rooms/`, hot-reloads the server
+   - Reject button: removes from queue, optionally notifies the player
+   - Active rooms list: shows which doors are currently occupied, with a Remove button
+
+3. **Server-side room registry**:
+   - Instead of static imports in `WorldScene.js`, rooms are loaded dynamically at runtime
+   - A JSON config file maps door keys to room file paths
+   - Adding/removing a room = updating the config + writing/deleting a file (no code changes)
+
+4. **Hot reload**:
+   - When a room is approved or removed, the server signals the Vite/Colyseus process to reload
+   - Players in the town square see the door label update without a full page refresh
 
 ---
 

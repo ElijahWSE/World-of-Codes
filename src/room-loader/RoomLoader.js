@@ -1,19 +1,19 @@
-// RoomLoader.js — Validates and mounts player room modules
+// RoomLoader.js — Validates and mounts player room modules into a Phaser scene.
 //
-// This module is the bridge between player-submitted room files and the
-// Phaser engine. It enforces the room contract defined in _template.js
-// so that a broken room cannot crash the entire game.
+// RESPONSIBILITIES:
+//   - Validate that a room module exports all 5 required hooks with correct types
+//   - Call onCreate once, wire onUpdate into the scene each frame
+//   - Wrap every hook call in try/catch so a broken room never crashes the game
+//   - Display a friendly in-game error message if anything goes wrong
 //
-// ARCHITECTURE NOTE:
-// Rooms run inside the existing Phaser RoomScene — no iframes or workers.
-// Because all room files are manually reviewed before being added to the
-// project, we trust the code at the module level. The safety guarantees here
-// are about structural correctness (right hooks exported, right types) and
-// runtime error isolation (try/catch around every hook call).
+// DOES NOT OWN:
+//   - Scene transitions (handled by RoomScene)
+//   - exitRoom logic (owned by RoomScene, exposed on scene before loadRoom is called)
+//   - onLoad (called by RoomScene.preload() before this runs)
 //
-// HOW TO ADD A NEW ROOM (future reference):
+// HOW TO ADD A NEW ROOM:
 //   1. Drop the room file into src/rooms/
-//   2. Import it in WorldScene.js and add it to the ROOMS map
+//   2. Import it in WorldScene.js and add it to the DOORS array
 //   That's it. No other files need to change.
 
 // The exact hooks every room module must export.
@@ -23,7 +23,7 @@ const REQUIRED_HOOKS = ['name', 'onLoad', 'onCreate', 'onUpdate', 'onExit'];
 /**
  * Validates that a room module exports all required hooks with correct types.
  *
- * @param {object} roomModule - The imported room module (e.g. import * as room from '...')
+ * @param {object} roomModule - The imported room module (import * as room from '...')
  * @returns {{ valid: boolean, errors: string[] }}
  */
 export function validateRoom(roomModule) {
@@ -34,8 +34,6 @@ export function validateRoom(roomModule) {
       errors.push(`Missing export: "${hook}"`);
       continue;
     }
-
-    // Type checks: name must be a string, the rest must be functions
     if (hook === 'name') {
       if (typeof roomModule.name !== 'string') {
         errors.push(`"name" must be a string, got ${typeof roomModule.name}`);
@@ -52,32 +50,79 @@ export function validateRoom(roomModule) {
 
 /**
  * Loads a validated room module into a Phaser scene.
- * Phase 1 STUB — validates only. Actual mounting is implemented in Phase 4.
+ *
+ * Expects scene.exitRoom to already be defined by RoomScene before this is called.
+ * On success, sets scene._roomUpdate so RoomScene.update() can call it each frame.
+ * On failure, renders a red error overlay and returns false.
  *
  * @param {object} roomModule - The imported room module
- * @param {Phaser.Scene} scene - The Phaser scene to mount the room into
- * @returns {boolean} true if the room passed validation, false otherwise
+ * @param {Phaser.Scene} scene - The RoomScene instance
+ * @returns {boolean} true if the room loaded successfully, false otherwise
  */
 export function loadRoom(roomModule, scene) {
+  // ── Validate ────────────────────────────────────────────────────────────────
   const { valid, errors } = validateRoom(roomModule);
 
   if (!valid) {
-    // Log each error clearly so the developer can fix the room file quickly.
-    console.error(`[RoomLoader] Room "${roomModule.name ?? '(unknown)'}" failed validation:`);
-    for (const err of errors) {
-      console.error(`  ✗ ${err}`);
-    }
-    // TODO (Phase 4): Display a friendly in-game error message on screen
-    // instead of (or in addition to) the console error.
+    console.error(`[RoomLoader] Room "${roomModule?.name ?? '(unknown)'}" failed validation:`);
+    errors.forEach(e => console.error(`  ✗ ${e}`));
+    _showError(scene, `Room failed validation:\n${errors.join('\n')}`);
     return false;
   }
 
-  console.log(`[RoomLoader] Room "${roomModule.name}" validated successfully.`);
+  // ── onCreate ────────────────────────────────────────────────────────────────
+  try {
+    roomModule.onCreate(scene);
+  } catch (err) {
+    console.error('[RoomLoader] onCreate threw:', err);
+    _showError(scene, `Room crashed in onCreate:\n${err.message}`);
+    return false;
+  }
 
-  // TODO (Phase 4): Call roomModule.onLoad(scene), then roomModule.onCreate(scene),
-  // then wire roomModule.onUpdate(scene) into the scene's update loop.
-  // Also expose scene.exitRoom() that calls roomModule.onExit(scene) and
-  // transitions back to WorldScene.
+  // ── Wire onUpdate ───────────────────────────────────────────────────────────
+  // RoomScene.update() calls scene._roomUpdate() every frame.
+  // Errors in onUpdate are logged but don't stop the game.
+  scene._roomUpdate = () => {
+    try {
+      roomModule.onUpdate(scene);
+    } catch (err) {
+      console.error('[RoomLoader] onUpdate threw:', err);
+    }
+  };
 
+  console.log(`[RoomLoader] Room "${roomModule.name}" loaded successfully.`);
   return true;
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Renders a red error overlay fixed to the screen.
+ * The back button in RoomScene is always available to dismiss it.
+ */
+function _showError(scene, message) {
+  // Semi-transparent dark panel
+  scene.add.rectangle(400, 320, 640, 200, 0x000000, 0.88)
+    .setScrollFactor(0)
+    .setDepth(100);
+
+  scene.add.text(400, 260, '⚠ Room Error', {
+    fontSize: '18px',
+    fill: '#ff4444',
+    fontFamily: 'monospace',
+  }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+  scene.add.text(400, 320, message, {
+    fontSize: '13px',
+    fill: '#ffaaaa',
+    fontFamily: 'monospace',
+    align: 'center',
+    wordWrap: { width: 600 },
+  }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+  scene.add.text(400, 400, 'Press the Back button to return to the town square.', {
+    fontSize: '12px',
+    fill: '#888888',
+    fontFamily: 'monospace',
+  }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 }

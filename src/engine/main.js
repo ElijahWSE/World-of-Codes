@@ -5,6 +5,7 @@
 
 import Phaser from 'phaser';
 import WorldScene from './WorldScene.js';
+import RoomScene from './RoomScene.js';
 
 const config = {
   type: Phaser.AUTO,          // Use WebGL if available, fall back to Canvas
@@ -22,8 +23,9 @@ const config = {
   },
 
   // Scene list — order matters: first scene auto-starts on boot.
-  // FUTURE: Add RoomScene here in Phase 4.
-  scene: [WorldScene]
+  // WorldScene is first so it starts automatically. RoomScene is launched
+  // programmatically when a player walks through a door.
+  scene: [WorldScene, RoomScene]
 };
 
 // Boot the game. Phaser attaches the canvas to `config.parent`.

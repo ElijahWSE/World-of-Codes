@@ -64,47 +64,65 @@ fences, no commentary — just the raw .js file content.
 Here is the template to fill in:
 
 ---
-// _template.js — The player room template (THE CONTRACT)
-//
-// THIS FILE IS GIVEN TO PLAYERS AND TO GEMINI WHEN GENERATING ROOMS.
-// DO NOT rename, remove, or restructure these hooks once finalized.
-// Rooms that players submit will be generated against this exact API.
-//
 // The ONLY thing you interact with is the `scene` object passed into each hook.
-//   scene.add        — create visual objects (rectangles, text, images)
+//   scene.add        — create visual objects (rectangles, text, images, stars, circles)
 //   scene.physics    — create physics-enabled objects that can collide
 //   scene.input      — detect keyboard and mouse input
 //   scene.cameras    — control the camera
 //   scene.time       — set up timers and delayed events
 //   scene.tweens     — animate objects smoothly
+//   scene.roomData   — store anything your room needs between frames
+//   scene.player     — reference to the local player sprite (a Phaser GameObject)
+//   scene.exitRoom() — call this to return the player to the town square
 //
 // RULES:
 //   ✅ DO: Create objects, text, shapes, and interactions inside the hooks
-//   ✅ DO: Store your room's objects in scene.roomData
-//   ✅ DO: Use scene.exitRoom() to send the player back to the town square
+//   ✅ DO: Store state in scene.roomData (initialise it as {} in onCreate)
+//   ✅ DO: Include an exit trigger that calls scene.exitRoom()
 //   ❌ DON'T: import any outside libraries or use require()
 //   ❌ DON'T: Use fetch(), XMLHttpRequest, or access the network
 //   ❌ DON'T: Use global variables (window.anything, globalThis.anything)
-//   ❌ DON'T: Modify other rooms or the WorldScene
 //   ❌ DON'T: Use document, localStorage, or any browser API outside of scene
+//
+// CANVAS SIZE: 800 wide × 600 tall. Place objects within these bounds.
+// ASSET KEYS: if you call scene.load.image(), prefix the key with your room
+//   name to avoid cache conflicts. e.g. 'myroom_floor', not 'floor'.
 
 export const name = 'My Room';
 
 export function onLoad(scene) {
-  // Load your assets here. Leave empty if you only use shapes and text.
+  // Load images or audio here. Leave empty if you only use shapes and text.
 }
 
 export function onCreate(scene) {
   scene.roomData = {};
-  // Build your room here. This runs once when the player enters.
+  // Build your room here. Runs once when the player enters.
+  // Use scene.add.rectangle(x, y, w, h, color) for solid shapes.
+  // Use scene.add.text(x, y, 'string', { fontSize: '20px', fill: '#fff' }) for text.
+  // Use scene.add.circle(x, y, radius, color) for circles.
+  // Use scene.add.star(x, y, points, innerR, outerR, color) for star shapes.
+  // For the exit trigger, create a zone and check overlap in onUpdate:
+  //   const exitZone = scene.add.zone(x, y, width, height);
+  //   scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);
+  //   scene.roomData.exitZone = exitZone;
+  //   scene.roomData.player = scene.player;
 }
 
 export function onUpdate(scene) {
-  // Per-frame logic goes here. Leave empty if your room has no animations.
+  // Runs every frame (~60fps). Keep this lean.
+  // Check for exit overlap like this:
+  //   const d = scene.roomData;
+  //   if (d.player && d.exitZone) {
+  //     const hit = Phaser.Geom.Intersects.RectangleToRectangle(
+  //       d.player.getBounds(), d.exitZone.getBounds()
+  //     );
+  //     if (hit) scene.exitRoom();
+  //   }
 }
 
 export function onExit(scene) {
-  // Cleanup your room here. Destroy objects, stop sounds, remove timers.
+  // Clean up timers and tweens here. scene.add objects are destroyed automatically.
+  scene.roomData = null;
 }
 ---
 

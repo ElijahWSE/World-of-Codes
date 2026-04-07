@@ -2,16 +2,19 @@
 // Every player starts here. Walk around, see other players in real time,
 // and enter doors to visit individual player rooms.
 //
-// ARCHITECTURE NOTES (important for future phases):
-// - Door-to-room wiring happens in Phase 4. For now doors just log to console.
+// ARCHITECTURE NOTES:
 // - Multiplayer state is owned by the Colyseus server (server/index.js).
 //   This scene is purely the visual/input layer.
-// - When adding a new room in Phase 4: import the room module and add one entry
-//   to the DOORS array. No other changes needed in this file.
+// - To add a new player room: import the module below and add one entry to
+//   the DOORS array with a roomModule property. No other files need to change.
 
 import Phaser from 'phaser';
 import { Client } from '@colyseus/sdk';
 import { WorldState } from '../shared/schema.js';
+
+// ── Player room imports ───────────────────────────────────────────────────────
+// Add one import per room file here. Then reference it in DOORS below.
+import * as ExampleRoom from '../rooms/example-room.js';
 
 // ── World Layout Constants ─────────────────────────────────────────────────
 const WORLD_W   = 1600;  // total world width in pixels
@@ -28,14 +31,14 @@ const HALF_DOOR = DOOR_W / 2; // 48
 
 // ── Door Definitions ───────────────────────────────────────────────────────
 // Each entry defines one door in the town square.
-// PHASE 4: add `roomModule` to each entry and import the room at the top.
-// Adding a room only requires dropping the file in src/rooms/ and adding
-// one line here — no other files need to change.
+// To wire a room to a door: add a `roomModule` property pointing to the import.
+// The label shown above the door comes from roomModule.name if present.
+// Adding a room = one import above + one roomModule line here. Nothing else changes.
 const DOORS = [
-  { key: 'room1', label: 'Room 1', wall: 'north', x: MID_X,          y: WALL_T / 2 },
-  { key: 'room2', label: 'Room 2', wall: 'east',  x: WORLD_W - WALL_T / 2, y: MID_Y },
-  { key: 'room3', label: 'Room 3', wall: 'south', x: MID_X,          y: WORLD_H - WALL_T / 2 },
-  { key: 'room4', label: 'Room 4', wall: 'west',  x: WALL_T / 2,     y: MID_Y },
+  { key: 'room1', label: ExampleRoom.name, wall: 'north', x: MID_X,               y: WALL_T / 2,          roomModule: ExampleRoom },
+  { key: 'room2', label: 'Room 2',         wall: 'east',  x: WORLD_W - WALL_T / 2, y: MID_Y },
+  { key: 'room3', label: 'Room 3',         wall: 'south', x: MID_X,               y: WORLD_H - WALL_T / 2 },
+  { key: 'room4', label: 'Room 4',         wall: 'west',  x: WALL_T / 2,          y: MID_Y },
 ];
 
 // Always connect to the same origin as the page.
@@ -57,8 +60,15 @@ export default class WorldScene extends Phaser.Scene {
     this._lastSentY = null;
   }
 
+  // init() runs before preload/create on every scene start (including restarts).
+  // When returning from a room, RoomScene passes { returnDoor: 'room1' } etc.
+  // so the player spawns back at the door they entered instead of world center.
+  init(data) {
+    this._returnDoor = data?.returnDoor ?? null;
+  }
+
   preload() {
-    // No external assets in Phase 2 — all visuals are shapes and text.
+    // No external assets — all visuals are shapes and text.
   }
 
   create() {
@@ -69,6 +79,14 @@ export default class WorldScene extends Phaser.Scene {
     this._setupCamera();
     this._setupInput();
     this._connectMultiplayer();
+
+    // Leave the Colyseus room cleanly when this scene shuts down (e.g. entering a room).
+    this.events.once('shutdown', () => {
+      if (this.colyseusRoom) {
+        this.colyseusRoom.leave();
+        this.colyseusRoom = null;
+      }
+    });
   }
 
   // ── Floor ────────────────────────────────────────────────────────────────
@@ -163,21 +181,43 @@ export default class WorldScene extends Phaser.Scene {
 
   // ── Player ────────────────────────────────────────────────────────────────
   _createPlayer() {
-    // Auto-generate a random name. Phase 2 doesn't have a login screen.
-    // TODO: Replace with an actual name input in a future phase.
-    this.playerName = `Player_${Math.floor(Math.random() * 9000) + 1000}`;
+    // Auto-generate a random name (no login screen yet).
+    // Preserve name across scene restarts so it stays consistent.
+    if (!this.playerName) {
+      this.playerName = `Player_${Math.floor(Math.random() * 9000) + 1000}`;
+    }
 
-    // Spawn at world center, matching the server's spawn position
-    this.player = this.add.rectangle(MID_X, MID_Y, 32, 32, 0x00cc44).setDepth(5);
+    // Determine spawn position.
+    // Default: world center. If returning from a room, spawn just inside that door.
+    let spawnX = MID_X;
+    let spawnY = MID_Y;
+
+    if (this._returnDoor) {
+      const door = DOORS.find(d => d.key === this._returnDoor);
+      if (door) {
+        // Offset inward from each wall so the player doesn't immediately re-trigger the door.
+        const INSET = WALL_T + 60;
+        const offsets = {
+          north: { dx: 0,     dy:  INSET },
+          south: { dx: 0,     dy: -INSET },
+          east:  { dx: -INSET, dy: 0     },
+          west:  { dx:  INSET, dy: 0     },
+        };
+        const off = offsets[door.wall] ?? { dx: 0, dy: 0 };
+        spawnX = door.x + off.dx;
+        spawnY = door.y + off.dy;
+      }
+    }
+
+    this.player = this.add.rectangle(spawnX, spawnY, 32, 32, 0x00cc44).setDepth(5);
     this.physics.add.existing(this.player); // dynamic physics body
-    // Don't use setCollideWorldBounds — our explicit walls handle boundaries instead
-    this.player.body.setCollideWorldBounds(false);
+    this.player.body.setCollideWorldBounds(false); // explicit walls handle boundaries
 
     // Collide player against all wall segments
     this.physics.add.collider(this.player, this.walls);
 
     // Name tag — position updated every frame in update()
-    this.playerLabel = this.add.text(MID_X, MID_Y - 24, 'You', {
+    this.playerLabel = this.add.text(spawnX, spawnY - 24, 'You', {
       fontSize: '12px',
       fill: '#ffffff',
       stroke: '#000000',
@@ -299,18 +339,27 @@ export default class WorldScene extends Phaser.Scene {
       }
     }
 
-    // ── Door proximity detection ─────────────────────────────────────────
-    // Triggers when the player walks into the door opening.
-    // PHASE 4: Replace console.log with this.scene.start('RoomScene', { ... })
+    // ── Door proximity detection ──────────────────────────────────────────────
+    // Fires once when the player walks into the door opening.
+    // If the door has a roomModule, transition to RoomScene.
+    // If not (room not built yet), log to console so the dev knows it was hit.
     for (const door of this.doorZones) {
       const dist = Phaser.Math.Distance.Between(
         this.player.x, this.player.y, door.x, door.y
       );
       if (dist < HALF_DOOR && !door.triggered) {
         door.triggered = true;
-        console.log(`Entering ${door.label}`);
+        if (door.roomModule) {
+          this.scene.start('RoomScene', {
+            room:        door.roomModule,
+            returnDoor:  door.key,
+            playerName:  this.playerName,
+          });
+        } else {
+          console.log(`[WorldScene] Door "${door.label}" has no room assigned yet.`);
+        }
       } else if (dist >= HALF_DOOR) {
-        door.triggered = false; // reset so re-entry works
+        door.triggered = false; // reset so re-entry works after returning
       }
     }
   }
