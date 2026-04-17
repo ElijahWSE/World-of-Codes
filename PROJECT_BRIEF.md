@@ -175,35 +175,41 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 
 ---
 
-### PHASE 5 — ADMIN PANEL FOR ROOM MANAGEMENT ⏳ TODO
+### PHASE 5 — ADMIN PANEL FOR ROOM MANAGEMENT ✅ COMPLETE (Option B)
 
 Goal: A password-protected web UI so rooms can be added, swapped, and removed
 without touching Codespace or editing files manually.
 
 You remain the gatekeeper — players submit code via Gemini, you review and approve.
 
-Two implementation options — decide before starting:
+#### Option B — Simple Admin Panel ✅ BUILT
+- Admin panel at `/admin` (proxied through Vite, accessible via port 5173)
+- Default password: `worldofcodes` — change in `server/index.js` line 22
+- Still requires a Vite restart (`npm start`) after approving a room
 
-#### Option A — Full Dynamic System (larger build)
-- Admin panel + dynamic room loading + hot reload
-- Rooms are loaded at runtime, no Vite restart needed after approving
-- Touches core architecture: replaces static imports in WorldScene.js with a
-  JSON config and dynamic imports
-- Parts to build:
-  1. Password-protected admin panel (paste code, approve/reject, remove active rooms)
-  2. Server-side room registry (JSON config maps door keys to room files)
-  3. Dynamic import system replacing static WorldScene.js imports
-  4. Hot reload signal so door labels update in-game without a page refresh
+Parts built:
+  1. `admin.html` — password-protected UI: paste code, pick door, approve/remove, view active rooms
+  2. `server/index.js` — admin routes: `GET /admin`, `GET /admin/rooms`, `POST /admin/approve`,
+     `POST /admin/remove`, `POST /admin/validate`
+  3. `WorldScene.js` — block markers (`[DOOR-IMPORT:x-start/end]`, `[DOOR-ENTRY:x-start/end]`)
+     added around each door's import and DOORS entry for reliable automated patching
+  4. `vite.config.js` — `/admin` proxy added
 
-#### Option B — Simple Admin Panel (smaller build, recommended first)
-- Admin panel only — you paste submitted code, it writes the file and updates WorldScene.js
-- Still requires a Vite restart after approving a room (one command)
-- Does NOT change the game engine architecture
-- Parts to build:
-  1. Password-protected admin page (paste code, pick which door, click Approve)
-  2. Server route that writes the .js file and patches the WorldScene.js import + DOORS entry
-  3. Reject/remove button that deletes the file and reverts WorldScene.js
-  4. Simple active rooms list showing which doors are occupied
+Code validation (runs before every approve):
+  - Detects JSX / React / HTML tag syntax
+  - Detects import or require statements
+  - Checks all 5 required hook exports (name, onLoad, onCreate, onUpdate, onExit)
+  - Runs `node --check` for full JavaScript syntax validation
+  - On failure: generates a ready-made Gemini fix prompt with the exact errors listed
+
+Known fix applied during build:
+  - `toPascalCase()` now strips all non-alphanumeric characters so room names with
+    brackets or special chars never produce invalid JS variable names
+
+#### Option A — Full Dynamic System (future upgrade if needed)
+- No Vite restart required after approving
+- Replaces static imports with JSON config + dynamic imports
+- Not yet built — implement if restarting becomes inconvenient
 
 ---
 
