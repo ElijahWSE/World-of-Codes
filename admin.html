@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>World of Codes — Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 2rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 { color: #f4a261; margin-bottom: 0.25rem; }
+    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 2rem; }
+    h2 { color: #f4a261; margin-bottom: 1rem; font-size: 1rem; letter-spacing: 0.05em; text-transform: uppercase; }
+    h3 { font-size: 0.9rem; margin-bottom: 0.75rem; color: #ccc; }
+    section {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    label { display: block; margin-bottom: 1rem; font-size: 0.875rem; color: #aaa; }
+    label span { display: block; margin-bottom: 0.35rem; }
+    input[type=text], input[type=password], select, textarea {
+      display: block;
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: #0f3460;
+      border: 1px solid #2a4a7f;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #f4a261;
+    }
+    textarea {
+      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+      resize: vertical;
+      min-height: 300px;
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1.25rem;
+      background: #f4a261;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.875rem;
+    }
+    .btn:hover { background: #e8935a; }
+    .btn-secondary { background: #2a4a7f; color: #e0e0e0; }
+    .btn-secondary:hover { background: #3a5a9f; }
+    .btn-danger { background: #e63946; color: #fff; }
+    .btn-danger:hover { background: #c1121f; }
+    .btn-small { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
+    .btn-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    .row { display: flex; gap: 1rem; }
+    .row label { flex: 1; }
+    .door-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+    .door-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 1rem; }
+    .door-card h3 { font-size: 0.8rem; color: #f4a261; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+    .door-card .room-name { font-size: 0.95rem; margin-bottom: 0.25rem; color: #e0e0e0; }
+    .door-card .room-file { font-size: 0.75rem; color: #888; margin-bottom: 0.75rem; font-family: monospace; }
+    .door-card .empty { color: #555; font-style: italic; font-size: 0.9rem; }
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      display: none;
+    }
+    .status.ok  { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; display: block; }
+    .status.err { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; display: block; }
+    .password-row { display: flex; align-items: flex-end; gap: 1rem; }
+    .password-row label { flex: 1; margin-bottom: 0; }
+    #password-saved { color: #52b788; font-size: 0.85rem; }
+    .note { font-size: 0.8rem; color: #666; margin-top: 0.75rem; }
+
+    /* Validation results */
+    #validation-box {
+      margin-top: 1.25rem;
+      display: none;
+    }
+    .check-list { list-style: none; margin-bottom: 1rem; }
+    .check-list li {
+      font-size: 0.875rem;
+      padding: 0.35rem 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .check-list li .icon { flex-shrink: 0; font-size: 1rem; }
+    .check-list li.pass { color: #52b788; }
+    .check-list li.fail { color: #e07a7a; }
+    .validation-banner {
+      padding: 0.6rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    .validation-banner.all-pass { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; }
+    .validation-banner.has-fail { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; }
+
+    /* Gemini fix prompt */
+    #gemini-prompt-box {
+      margin-top: 1.25rem;
+      background: #0f2040;
+      border: 1px solid #f4a26155;
+      border-radius: 6px;
+      padding: 1.25rem;
+      display: none;
+    }
+    #gemini-prompt-box h3 { color: #f4a261; margin-bottom: 0.4rem; }
+    #gemini-prompt-box p { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
+    #gemini-prompt {
+      min-height: 140px;
+      font-size: 0.78rem;
+      background: #070e1f;
+      border-color: #1a3060;
+      color: #ccc;
+      margin-bottom: 0.75rem;
+    }
+    #copy-feedback { font-size: 0.8rem; color: #52b788; margin-left: 0.75rem; display: none; }
+  </style>
+</head>
+<body>
+
+<h1>World of Codes</h1>
+<p class="subtitle">Admin Panel — room management</p>
+
+<!-- Password -->
+<section>
+  <h2>Password</h2>
+  <div class="password-row">
+    <label>
+      <span>Admin Password</span>
+      <input type="password" id="password" placeholder="Enter password and click Save">
+    </label>
+    <button class="btn" onclick="savePassword()">Save</button>
+    <span id="password-saved" style="display:none">Saved ✓</span>
+  </div>
+</section>
+
+<!-- Current Rooms -->
+<section>
+  <h2>Current Rooms</h2>
+  <div class="door-grid" id="door-grid">
+    <p style="color:#888;font-size:0.9rem">Loading...</p>
+  </div>
+  <button class="btn btn-secondary btn-small" style="margin-top:1rem" onclick="loadRooms()">Refresh</button>
+</section>
+
+<!-- Approve Room -->
+<section>
+  <h2>Approve New Room</h2>
+  <div class="row">
+    <label>
+      <span>Room Name</span>
+      <input type="text" id="room-name" placeholder="e.g. Crystal Cave">
+    </label>
+    <label>
+      <span>Assign to Door</span>
+      <select id="door-select">
+        <option value="north">North</option>
+        <option value="east">East</option>
+        <option value="south">South</option>
+        <option value="west">West</option>
+      </select>
+    </label>
+  </div>
+  <label>
+    <span>Room Code (paste the full JS file from the player)</span>
+    <textarea id="room-code" placeholder="// Paste room code here..."></textarea>
+  </label>
+
+  <div class="btn-row">
+    <button class="btn btn-secondary" onclick="validateOnly()">Validate Code</button>
+    <button class="btn" onclick="approveRoom()">Approve Room</button>
+  </div>
+  <p class="note">After approving, restart the server with <code>npm start</code> for the room to appear in-game.</p>
+
+  <!-- Validation results -->
+  <div id="validation-box">
+    <div id="validation-banner" class="validation-banner"></div>
+    <ul class="check-list" id="check-list"></ul>
+
+    <!-- Gemini fix prompt — only shown when there are failures -->
+    <div id="gemini-prompt-box">
+      <h3>Fix Prompt for Gemini</h3>
+      <p>Copy this and paste it back into the same Gemini conversation to get a corrected version of the code.</p>
+      <textarea id="gemini-prompt" readonly></textarea>
+      <div style="display:flex;align-items:center">
+        <button class="btn btn-secondary btn-small" onclick="copyGeminiPrompt()">Copy Prompt</button>
+        <span id="copy-feedback">Copied!</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="status" id="approve-status"></div>
+</section>
+
+<script>
+  // ── Password ──────────────────────────────────────────────────────────────
+  function getPassword() {
+    return sessionStorage.getItem('woc_admin_pw') || '';
+  }
+
+  function savePassword() {
+    const pw = document.getElementById('password').value;
+    if (!pw) return;
+    sessionStorage.setItem('woc_admin_pw', pw);
+    document.getElementById('password').value = '';
+    const el = document.getElementById('password-saved');
+    el.style.display = 'inline';
+    setTimeout(() => el.style.display = 'none', 3000);
+  }
+
+  // ── Status message ────────────────────────────────────────────────────────
+  function showStatus(id, msg, ok) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status ' + (ok ? 'ok' : 'err');
+  }
+
+  // ── Current rooms ─────────────────────────────────────────────────────────
+  async function loadRooms() {
+    const grid = document.getElementById('door-grid');
+    try {
+      const res  = await fetch('/admin/rooms');
+      const data = await res.json();
+      const doors = ['north', 'east', 'south', 'west'];
+      grid.innerHTML = doors.map(door => {
+        const room = data[door];
+        const body = room
+          ? `<div class="room-name">${room.varName}</div>
+             <div class="room-file">${room.fileName}</div>
+             <button class="btn btn-small btn-danger" onclick="removeRoom('${door}')">Remove</button>`
+          : `<div class="empty">(empty)</div>`;
+        return `<div class="door-card"><h3>${door}</h3>${body}</div>`;
+      }).join('');
+    } catch (e) {
+      grid.innerHTML = `<p style="color:#e07a7a">Failed to load: ${e.message}</p>`;
+    }
+  }
+
+  // ── Validation ────────────────────────────────────────────────────────────
+  const CHECKS = [
+    {
+      id: 'no-jsx',
+      label: 'No JSX or HTML tags',
+      test: code => !/<(?:div|span|p|h[1-6]|ul|ol|li|button|input|form|section|header|footer|nav|main|article|img|a)\b/i.test(code)
+                 && !/className\s*=/.test(code)
+                 && !/ReactDOM|React\.createElement|from ['"]react['"]/.test(code),
+    },
+    {
+      id: 'no-imports',
+      label: 'No import or require statements',
+      test: code => !/^\s*import\s+/m.test(code) && !/require\s*\(/.test(code),
+    },
+    {
+      id: 'has-name',
+      label: 'Exports: name (string)',
+      test: code => /export\s+const\s+name\s*=/.test(code),
+    },
+    {
+      id: 'has-onLoad',
+      label: 'Exports: onLoad function',
+      test: code => /export\s+(function\s+onLoad|const\s+onLoad\s*=)/.test(code),
+    },
+    {
+      id: 'has-onCreate',
+      label: 'Exports: onCreate function',
+      test: code => /export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(code),
+    },
+    {
+      id: 'has-onUpdate',
+      label: 'Exports: onUpdate function',
+      test: code => /export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(code),
+    },
+    {
+      id: 'has-onExit',
+      label: 'Exports: onExit function',
+      test: code => /export\s+(function\s+onExit|const\s+onExit\s*=)/.test(code),
+    },
+  ];
+
+  function runValidation(code) {
+    return CHECKS.map(check => ({ ...check, passed: check.test(code) }));
+  }
+
+  function showValidationResults(results, code) {
+    const box     = document.getElementById('validation-box');
+    const banner  = document.getElementById('validation-banner');
+    const list    = document.getElementById('check-list');
+    const promptBox = document.getElementById('gemini-prompt-box');
+
+    const failures = results.filter(r => !r.passed);
+    const allPass  = failures.length === 0;
+
+    banner.textContent = allPass
+      ? '✓ All checks passed — code looks good to approve.'
+      : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — do not approve until fixed.`;
+    banner.className = 'validation-banner ' + (allPass ? 'all-pass' : 'has-fail');
+
+    list.innerHTML = results.map(r => {
+      const detail = (!r.passed && r.syntaxError)
+        ? `<pre style="font-size:0.75rem;margin-top:0.35rem;color:#e07a7aaa;white-space:pre-wrap">${r.syntaxError}</pre>`
+        : '';
+      return `<li class="${r.passed ? 'pass' : 'fail'}">
+        <span class="icon">${r.passed ? '✓' : '✗'}</span>
+        <span>${r.label}${detail}</span>
+      </li>`;
+    }).join('');
+
+    if (!allPass) {
+      document.getElementById('gemini-prompt').value = buildGeminiPrompt(code, failures);
+      promptBox.style.display = 'block';
+    } else {
+      promptBox.style.display = 'none';
+    }
+
+    box.style.display = 'block';
+    return allPass;
+  }
+
+  function buildGeminiPrompt(code, failures) {
+    const issueList = failures.map(f => {
+      switch (f.id) {
+        case 'no-jsx':
+          return '- The code contains JSX or HTML-like syntax (e.g. <div>, <span>, className). This is a React/web app pattern and is not compatible with the game engine.';
+        case 'no-imports':
+          return '- The code contains import or require statements. Room files must be fully self-contained — no external libraries or modules allowed.';
+        case 'has-name':
+          return '- Missing: export const name = \'Your Room Name\'; (a plain string export is required)';
+        case 'has-onLoad':
+          return '- Missing: export function onLoad(scene) { ... }';
+        case 'has-onCreate':
+          return '- Missing: export function onCreate(scene) { ... }';
+        case 'has-onUpdate':
+          return '- Missing: export function onUpdate(scene) { ... }';
+        case 'has-onExit':
+          return '- Missing: export function onExit(scene) { ... }';
+        case 'syntax':
+          return `- The code has a JavaScript syntax error that prevents it from loading:\n  ${f.syntaxError || 'Unknown syntax error'}`;
+        default:
+          return `- Failed check: ${f.label}`;
+      }
+    }).join('\n');
+
+    return `The room code I submitted has errors and cannot be added to the game. Please fix it.
+
+ISSUES FOUND:
+${issueList}
+
+RULES THE CODE MUST FOLLOW:
+- Plain JavaScript module only — no JSX, no React, no HTML tags, no className
+- No import statements and no require() calls
+- Must export exactly these 5 things:
+    export const name = 'Your Room Name';   // a string
+    export function onLoad(scene) { ... }   // runs once before the room starts
+    export function onCreate(scene) { ... } // runs once when the room starts
+    export function onUpdate(scene) { ... } // runs every frame
+    export function onExit(scene) { ... }   // runs when the player leaves
+- All visuals must use the scene object:
+    scene.add.rectangle(x, y, width, height, color)
+    scene.add.text(x, y, 'text', { fontSize: '16px', fill: '#ffffff' })
+    scene.physics.add.staticGroup()
+    scene.cameras.main.setBackgroundColor('#rrggbb')
+- To send the player back to the town square, call: scene.exitRoom()
+- No external libraries. No frameworks. No globals.
+
+ORIGINAL CODE TO FIX:
+\`\`\`js
+${code}
+\`\`\`
+
+Please rewrite it as a correct plain JavaScript module following all the rules above. Return only the complete JS file with no explanation.`;
+  }
+
+  async function checkSyntaxServer(code) {
+    try {
+      const res  = await fetch('/admin/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      return {
+        id: 'syntax',
+        label: 'Valid JavaScript syntax',
+        passed: data.ok,
+        syntaxError: data.syntaxError || null,
+      };
+    } catch (e) {
+      // If the server is unreachable, don't block — just skip this check.
+      return { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
+    }
+  }
+
+  async function validateOnly() {
+    const code = document.getElementById('room-code').value.trim();
+    if (!code) { showStatus('approve-status', 'Paste room code first.', false); return; }
+    const patternResults = runValidation(code);
+    const syntaxResult   = await checkSyntaxServer(code);
+    showValidationResults([...patternResults, syntaxResult], code);
+    document.getElementById('approve-status').className = 'status';
+  }
+
+  function copyGeminiPrompt() {
+    const text = document.getElementById('gemini-prompt').value;
+    navigator.clipboard.writeText(text).then(() => {
+      const fb = document.getElementById('copy-feedback');
+      fb.style.display = 'inline';
+      setTimeout(() => fb.style.display = 'none', 2500);
+    });
+  }
+
+  // ── Approve ───────────────────────────────────────────────────────────────
+  async function approveRoom() {
+    const password = getPassword();
+    const door     = document.getElementById('door-select').value;
+    const roomName = document.getElementById('room-name').value.trim();
+    const code     = document.getElementById('room-code').value.trim();
+
+    if (!password) return showStatus('approve-status', 'Enter and save your password first.', false);
+    if (!roomName) return showStatus('approve-status', 'Room name is required.', false);
+    if (!code)     return showStatus('approve-status', 'Room code is required.', false);
+
+    // Always validate before approving (pattern checks + server syntax check)
+    const patternResults = runValidation(code);
+    const syntaxResult   = await checkSyntaxServer(code);
+    const allPass = showValidationResults([...patternResults, syntaxResult], code);
+    if (!allPass) {
+      showStatus('approve-status', 'Fix the issues above before approving.', false);
+      return;
+    }
+
+    try {
+      const res  = await fetch('/admin/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, door, roomName, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showStatus('approve-status', `Error: ${data.error}`, false);
+      showStatus('approve-status',
+        `✓ Room approved! Written to src/rooms/${data.fileName} → ${door} door. Restart the server to load it.`,
+        true);
+      document.getElementById('room-name').value = '';
+      document.getElementById('room-code').value = '';
+      document.getElementById('validation-box').style.display = 'none';
+      loadRooms();
+    } catch (e) {
+      showStatus('approve-status', `Request failed: ${e.message}`, false);
+    }
+  }
+
+  // ── Remove ────────────────────────────────────────────────────────────────
+  async function removeRoom(door) {
+    const password = getPassword();
+    if (!password) { alert('Enter and save your password first.'); return; }
+    if (!confirm(`Remove the room from the ${door} door?\n\nThe .js file stays in src/rooms/ but won't be loaded.`)) return;
+
+    try {
+      const res  = await fetch('/admin/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, door }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(`Error: ${data.error}`); return; }
+      loadRooms();
+    } catch (e) {
+      alert(`Request failed: ${e.message}`);
+    }
+  }
+
+  // Show saved indicator on load if password already exists
+  if (sessionStorage.getItem('woc_admin_pw')) {
+    const el = document.getElementById('password-saved');
+    el.textContent = 'Password saved ✓';
+    el.style.display = 'inline';
+  }
+
+  loadRooms();
+</script>
+</body>
+</html>

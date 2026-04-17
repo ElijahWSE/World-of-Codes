@@ -16,6 +16,11 @@
 export default {
   server: {
     proxy: {
+      // Admin panel (served by the Express/Colyseus server)
+      '/admin': {
+        target: 'http://localhost:2567',
+        changeOrigin: true,
+      },
       // HTTP matchmaking
       '/matchmake': {
         target: 'http://localhost:2567',

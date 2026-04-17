@@ -13,11 +13,19 @@ import { Client } from '@colyseus/sdk';
 import { WorldState } from '../shared/schema.js';
 
 // ── Player room imports ───────────────────────────────────────────────────────
-// Add one import per room file here. Then reference it in DOORS below.
+// These blocks are managed by the admin panel — do not edit them manually.
+// [DOOR-IMPORT:north-start]
 import * as ExampleRoom from '../rooms/example-room.js';
-import * as UnicornGarden from '../rooms/unicorn-garden.js';
+// [DOOR-IMPORT:north-end]
+// [DOOR-IMPORT:east-start]
+import * as Sample from '../rooms/sample.js';
+// [DOOR-IMPORT:east-end]
+// [DOOR-IMPORT:south-start]
 import * as TropicalSurfHaven from '../rooms/tropical-surf-haven.js';
+// [DOOR-IMPORT:south-end]
+// [DOOR-IMPORT:west-start]
 import * as VibrantCityCenter from '../rooms/vibrant-city-center.js';
+// [DOOR-IMPORT:west-end]
 
 // ── World Layout Constants ─────────────────────────────────────────────────
 const WORLD_W   = 1600;  // total world width in pixels
@@ -38,10 +46,18 @@ const HALF_DOOR = DOOR_W / 2; // 48
 // The label shown above the door comes from roomModule.name if present.
 // Adding a room = one import above + one roomModule line here. Nothing else changes.
 const DOORS = [
-  { key: 'room1', label: ExampleRoom.name, wall: 'north', x: MID_X,               y: WALL_T / 2,          roomModule: ExampleRoom },
-  { key: 'room2', label: UnicornGarden.name, wall: 'east',  x: WORLD_W - WALL_T / 2, y: MID_Y, roomModule: UnicornGarden },
+  // [DOOR-ENTRY:north-start]
+  { key: 'room1', label: ExampleRoom.name, wall: 'north', x: MID_X, y: WALL_T / 2, roomModule: ExampleRoom },
+  // [DOOR-ENTRY:north-end]
+  // [DOOR-ENTRY:east-start]
+  { key: 'room2', label: Sample.name, wall: 'east', x: WORLD_W - WALL_T / 2, y: MID_Y, roomModule: Sample },
+// [DOOR-ENTRY:east-end]
+  // [DOOR-ENTRY:south-start]
   { key: 'room3', label: TropicalSurfHaven.name, wall: 'south', x: MID_X, y: WORLD_H - WALL_T / 2, roomModule: TropicalSurfHaven },
+  // [DOOR-ENTRY:south-end]
+  // [DOOR-ENTRY:west-start]
   { key: 'room4', label: VibrantCityCenter.name, wall: 'west', x: WALL_T / 2, y: MID_Y, roomModule: VibrantCityCenter },
+  // [DOOR-ENTRY:west-end]
 ];
 
 // Always connect to the same origin as the page.
