@@ -18,7 +18,7 @@ import { WorldState } from '../shared/schema.js';
 import * as ExampleRoom from '../rooms/example-room.js';
 // [DOOR-IMPORT:north-end]
 // [DOOR-IMPORT:east-start]
-import * as Sample from '../rooms/sample.js';
+import * as LivelyJungle2 from '../rooms/lively-jungle-2.js';
 // [DOOR-IMPORT:east-end]
 // [DOOR-IMPORT:south-start]
 import * as TropicalSurfHaven from '../rooms/tropical-surf-haven.js';
@@ -50,7 +50,7 @@ const DOORS = [
   { key: 'room1', label: ExampleRoom.name, wall: 'north', x: MID_X, y: WALL_T / 2, roomModule: ExampleRoom },
   // [DOOR-ENTRY:north-end]
   // [DOOR-ENTRY:east-start]
-  { key: 'room2', label: Sample.name, wall: 'east', x: WORLD_W - WALL_T / 2, y: MID_Y, roomModule: Sample },
+  { key: 'room2', label: LivelyJungle2.name, wall: 'east', x: WORLD_W - WALL_T / 2, y: MID_Y, roomModule: LivelyJungle2 },
 // [DOOR-ENTRY:east-end]
   // [DOOR-ENTRY:south-start]
   { key: 'room3', label: TropicalSurfHaven.name, wall: 'south', x: MID_X, y: WORLD_H - WALL_T / 2, roomModule: TropicalSurfHaven },
@@ -95,6 +95,7 @@ export default class WorldScene extends Phaser.Scene {
     this._createWalls();
     this._createDoors();
     this._createPlayer();
+    this._createSignpost();
     this._setupCamera();
     this._setupInput();
     this._connectMultiplayer();
@@ -330,6 +331,29 @@ export default class WorldScene extends Phaser.Scene {
 
   // ── Update Loop ───────────────────────────────────────────────────────────
   update() {
+    // ── Signpost overlay: freeze movement and handle page navigation ──────
+    // ESC is handled via keyboard event listener registered in _createSignpost.
+    if (this._signOpen) {
+      this.player.body.setVelocity(0);
+      const JD = k => Phaser.Input.Keyboard.JustDown(k);
+      if (JD(this._keyE) || JD(this.cursors.right)) {
+        if (this._signPage < this._signPages.length - 1) {
+          this._signPage++;
+          this._renderSignPage();
+        } else {
+          this._closeSignpost();
+          return;
+        }
+      } else if (JD(this.cursors.left)) {
+        if (this._signPage > 0) {
+          this._signPage--;
+          this._renderSignPage();
+        }
+      }
+      this.playerLabel.setPosition(this.player.x, this.player.y - 24);
+      return;
+    }
+
     const body = this.player.body;
     body.setVelocity(0);
 
@@ -381,5 +405,367 @@ export default class WorldScene extends Phaser.Scene {
         door.triggered = false; // reset so re-entry works after returning
       }
     }
+
+    // ── Signpost proximity ────────────────────────────────────────────────
+    const signDist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this._signX, this._signY
+    );
+    const nearSign = signDist < 80;
+    this._signHint.setVisible(nearSign);
+    if (nearSign && Phaser.Input.Keyboard.JustDown(this._keyE)) {
+      this._openSignpost();
+    }
+  }
+
+  // ── Signpost ──────────────────────────────────────────────────────────────
+  _createSignpost() {
+    const sx = MID_X, sy = MID_Y + 150;
+
+    this.add.rectangle(sx, sy + 14, 8, 48, 0x5c3a1e).setDepth(3);
+    this.add.rectangle(sx, sy - 6, 80, 44, 0x7a5230).setDepth(3);
+    this.add.rectangle(sx, sy - 6, 74, 38, 0xd4a96a).setDepth(3);
+    this.add.text(sx, sy - 6, 'NOTICE\nBOARD', {
+      fontSize: '9px', fill: '#3d1f00', fontStyle: 'bold', align: 'center',
+    }).setOrigin(0.5).setDepth(4);
+
+    const hitbox = this.add.rectangle(sx, sy + 8, 16, 56, 0x000000, 0);
+    this.physics.add.existing(hitbox, true);
+    this.physics.add.collider(this.player, hitbox);
+
+    this._signHint = this.add.text(sx, sy - 52, '[E] Read notice board', {
+      fontSize: '12px', fill: '#ffff00', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20).setVisible(false);
+
+    this._signX    = sx;
+    this._signY    = sy;
+    this._signOpen = false;
+    this._signPage = 0;
+
+    this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+    // Event listener is more reliable than polling for ESC in browser environments
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this._signOpen) this._closeSignpost();
+    });
+
+    this._buildSignpostOverlay();
+  }
+
+  _buildSignpostOverlay() {
+    const CW = 800, CH = 600;
+    const cx = CW / 2, cy = CH / 2;
+    const PW = 740, PH = 550;
+    const px = cx - PW / 2, py = cy - PH / 2;
+    const fix = obj => obj.setScrollFactor(0).setDepth(70);
+
+    this._sovBg = fix(
+      this.add.rectangle(cx, cy, CW, CH, 0x000000).setAlpha(0.78).setVisible(false),
+    );
+    this._sovPanel = fix(
+      this.add.rectangle(cx, cy, PW, PH, 0x1a0d00).setAlpha(0.97).setVisible(false),
+    );
+
+    const gfx = this.add.graphics().setScrollFactor(0).setDepth(71).setVisible(false);
+    gfx.lineStyle(2, 0xc8a46e, 1);
+    gfx.strokeRect(px, py, PW, PH);
+    gfx.lineStyle(1, 0xc8a46e, 0.5);
+    gfx.lineBetween(px + 10, py + 48,        px + PW - 10, py + 48);
+    gfx.lineBetween(px + 10, py + PH - 70,   px + PW - 10, py + PH - 70);
+    gfx.lineBetween(px + 10, py + PH - 34,   px + PW - 10, py + PH - 34);
+    this._sovGfx = gfx;
+
+    this._sovTitle = fix(
+      this.add.text(cx, py + 15, '', {
+        fontSize: '18px', fill: '#c8a46e', fontStyle: 'bold',
+      }).setOrigin(0.5, 0).setVisible(false),
+    );
+
+    this._sovContent = fix(
+      this.add.text(px + 16, py + 56, '', {
+        fontSize: '13px', fill: '#e0e0e0', lineSpacing: 4,
+      }).setVisible(false),
+    );
+
+    // Copy button — only visible on pages that have copyText defined
+    this._sovCopyBtn = fix(
+      this.add.text(cx, py + PH - 52, '[ Copy Prompt ]', {
+        fontSize: '14px', fill: '#1a0d00', backgroundColor: '#c8a46e',
+        padding: { x: 16, y: 7 },
+      }).setOrigin(0.5, 0.5).setVisible(false).setInteractive({ useHandCursor: true }),
+    );
+    this._sovCopyBtn.on('pointerover',  () => this._sovCopyBtn.setStyle({ fill: '#000000' }));
+    this._sovCopyBtn.on('pointerout',   () => this._sovCopyBtn.setStyle({ fill: '#1a0d00' }));
+    this._sovCopyBtn.on('pointerdown',  () => this._copyCurrentPrompt());
+
+    this._sovNav = fix(
+      this.add.text(cx, py + PH - 16, '', {
+        fontSize: '13px', fill: '#c8a46e',
+      }).setOrigin(0.5, 0.5).setVisible(false),
+    );
+
+    this._sovPageNum = fix(
+      this.add.text(px + PW - 12, py + PH - 16, '', {
+        fontSize: '13px', fill: '#888888',
+      }).setOrigin(1, 0.5).setVisible(false),
+    );
+
+    this._sovBase = [
+      this._sovBg, this._sovPanel, this._sovGfx,
+      this._sovTitle, this._sovContent, this._sovNav, this._sovPageNum,
+    ];
+
+    this._signPages = this._buildSignPages();
+  }
+
+  _buildSignPages() {
+    const PROMPT1 =
+      'I want to design a room for a 2D top-down browser game built with Phaser.js.\n' +
+      'My room theme is: [YOUR THEME HERE]\n' +
+      '\n' +
+      'Create an interactive preview of this room using a mock Phaser scene so I can\n' +
+      'see what it looks like. The room should:\n' +
+      '- Have a distinct visual style matching my theme (rectangles, circles, stars, text)\n' +
+      '- Include animated elements (tweens for movement, blinking, spinning, etc.)\n' +
+      '- Have an EXIT zone at the bottom centre of the screen (around x=400, y=560)\n' +
+      '\n' +
+      'Store all the actual room logic inside a const called roomCode with:\n' +
+      '  name       — a string with the room\'s display name\n' +
+      '  onLoad     — function(scene) for loading assets\n' +
+      '  onCreate   — function(scene) for building the room\n' +
+      '  onUpdate   — function(scene) for per-frame animations and the exit check\n' +
+      '  onExit     — function(scene) for cleanup (set scene.roomData = null)\n' +
+      '\n' +
+      'Inside onCreate, always include this exit trigger block at the end:\n' +
+      '  const exitZone = scene.add.zone(400, 555, 120, 40);\n' +
+      '  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);\n' +
+      '  scene.roomData.exitZone = exitZone;\n' +
+      '  scene.roomData.player = scene.player;\n' +
+      '\n' +
+      'Inside onUpdate, always include this exit check:\n' +
+      '  const d = scene.roomData;\n' +
+      '  if (d.player && d.exitZone) {\n' +
+      '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
+      '      d.player.getBounds(), d.exitZone.getBounds()\n' +
+      '    );\n' +
+      '    if (hit) scene.exitRoom();\n' +
+      '  }\n' +
+      '\n' +
+      'Show me the preview so I can test it and ask for changes.';
+
+    const PROMPT2 =
+      'Now take the room logic from the roomCode object above and rewrite it using the\n' +
+      'exact template below. Fill in only the body of each function with the room code\n' +
+      'you already designed. Do not change the structure.\n' +
+      '\n' +
+      'STRICT RULES for the output:\n' +
+      '  ✅ Return ONLY what is between the template markers — nothing else\n' +
+      '  ✅ Keep all 5 export statements exactly as named\n' +
+      '  ✅ Keep the exit trigger block in onCreate exactly as shown\n' +
+      '  ✅ Keep the exit check block in onUpdate exactly as shown\n' +
+      '  ❌ Do NOT add import, require(), or export default at the top\n' +
+      '  ❌ Do NOT wrap in React, HTML, or any framework\n' +
+      '  ❌ Do NOT include any explanation, commentary, or code fences\n' +
+      '  ❌ Do NOT use fetch(), document, localStorage, or window\n' +
+      '\n' +
+      '--- START OF TEMPLATE ---\n' +
+      '\n' +
+      "export const name = 'My Room'; // ← use your room name\n" +
+      '\n' +
+      'export function onLoad(scene) {\n' +
+      '}\n' +
+      '\n' +
+      'export function onCreate(scene) {\n' +
+      '  scene.roomData = {};\n' +
+      '\n' +
+      '  // ── your room design goes here ────────────────────────────────────\n' +
+      '\n' +
+      '\n' +
+      '  // ── exit trigger (keep this block exactly as-is) ──────────────────\n' +
+      "  scene.add.rectangle(400, 570, 120, 30, 0x333333);\n" +
+      "  scene.add.text(400, 570, 'EXIT', { fontSize: '16px', fill: '#ffffff' }).setOrigin(0.5);\n" +
+      '  const exitZone = scene.add.zone(400, 555, 120, 40);\n' +
+      '  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);\n' +
+      '  scene.roomData.exitZone = exitZone;\n' +
+      '  scene.roomData.player = scene.player;\n' +
+      '}\n' +
+      '\n' +
+      'export function onUpdate(scene) {\n' +
+      '  // ── exit check (keep this block exactly as-is) ────────────────────\n' +
+      '  const d = scene.roomData;\n' +
+      '  if (d.player && d.exitZone) {\n' +
+      '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
+      '      d.player.getBounds(), d.exitZone.getBounds()\n' +
+      '    );\n' +
+      '    if (hit) scene.exitRoom();\n' +
+      '  }\n' +
+      '\n' +
+      '  // ── per-frame animation logic goes here ───────────────────────────\n' +
+      '\n' +
+      '}\n' +
+      '\n' +
+      'export function onExit(scene) {\n' +
+      '  scene.roomData = null;\n' +
+      '}\n' +
+      '\n' +
+      '--- END OF TEMPLATE ---';
+
+    return [
+      {
+        title: 'HOW TO BUILD YOUR ROOM',
+        body:
+          'World of Codes lets you create a room using Gemini AI. No coding needed!\n' +
+          '\n' +
+          'STEPS:\n' +
+          '  1. Pick a creative theme  (e.g. "Crystal Cave", "Neon Arcade")\n' +
+          '\n' +
+          '  2. Open gemini.google.com in a NEW conversation\n' +
+          '\n' +
+          '  3. Copy and paste PROMPT 1 (page 2) into Gemini\n' +
+          '     Gemini builds a live preview — tweak until happy\n' +
+          '\n' +
+          '  4. Paste PROMPT 2 (pages 3-4) in the SAME conversation\n' +
+          '     Gemini outputs the final room code\n' +
+          '\n' +
+          '  5. Send the code to the game owner for review\n' +
+          '     Your door appears in the town square once approved!\n' +
+          '\n' +
+          'Rooms CAN:    shapes, colours, text, animations\n' +
+          'Rooms CANNOT: imports, network requests, browser storage',
+      },
+      {
+        title: 'PROMPT 1 — Design & Preview',
+        copyText: PROMPT1,
+        body:
+          'Click "Copy Prompt", replace [YOUR THEME HERE], then paste into Gemini.\n' +
+          '\n' +
+          'I want to design a room for a 2D top-down browser game built\n' +
+          'with Phaser.js. My room theme is: [YOUR THEME HERE]\n' +
+          '\n' +
+          'Create an interactive preview. The room should:\n' +
+          '  - Visual style matching my theme (shapes, text, colours)\n' +
+          '  - Animated elements (tweens, blinking, spinning)\n' +
+          '  - EXIT zone at the bottom centre (around x=400, y=560)\n' +
+          '\n' +
+          'Store logic in a const roomCode with: name, onLoad, onCreate, onUpdate, onExit\n' +
+          '\n' +
+          'In onCreate, end with exit trigger:\n' +
+          '  const exitZone = scene.add.zone(400, 555, 120, 40);\n' +
+          '  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);\n' +
+          '  scene.roomData.exitZone = exitZone;\n' +
+          '  scene.roomData.player = scene.player;\n' +
+          '\n' +
+          'In onUpdate, include exit check:\n' +
+          '  const d = scene.roomData;\n' +
+          '  if (d.player && d.exitZone) {\n' +
+          '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
+          '      d.player.getBounds(), d.exitZone.getBounds());\n' +
+          '    if (hit) scene.exitRoom();\n' +
+          '  }\n' +
+          '\n' +
+          'Show me the preview so I can test it and ask for changes.',
+      },
+      {
+        title: 'PROMPT 2 — Export Rules',
+        copyText: PROMPT2,
+        body:
+          'Click "Copy Prompt" — it includes both these rules AND the template.\n' +
+          'Send this in the SAME conversation after the preview looks good.\n' +
+          '\n' +
+          'Now take the room logic from roomCode and rewrite it using the\n' +
+          'exact template below. Fill only the function bodies.\n' +
+          '\n' +
+          'STRICT RULES:\n' +
+          '  ✅ Return ONLY what is between the template markers\n' +
+          '  ✅ Keep all 5 export statements exactly as named\n' +
+          '  ✅ Keep the exit trigger in onCreate exactly as shown\n' +
+          '  ✅ Keep the exit check in onUpdate exactly as shown\n' +
+          '  ❌ No import, require(), or export default at the top\n' +
+          '  ❌ No React, HTML, or any framework\n' +
+          '  ❌ No explanation, commentary, or code fences\n' +
+          '  ❌ No fetch(), document, localStorage, or window\n' +
+          '\n' +
+          '(Page 4 shows the full code template included in the copied prompt)',
+      },
+      {
+        title: 'PROMPT 2 — Code Template',
+        copyText: PROMPT2,
+        body:
+          'This template is automatically included when you Copy Prompt on page 3.\n' +
+          '\n' +
+          "export const name = 'My Room'; // ← your room name\n" +
+          'export function onLoad(scene) {}\n' +
+          'export function onCreate(scene) {\n' +
+          '  scene.roomData = {};\n' +
+          '  // your room design here\n' +
+          "  scene.add.rectangle(400, 570, 120, 30, 0x333333);\n" +
+          "  scene.add.text(400, 570, 'EXIT', {\n" +
+          "    fontSize: '16px', fill: '#ffffff' }).setOrigin(0.5);\n" +
+          '  const exitZone = scene.add.zone(400, 555, 120, 40);\n' +
+          '  scene.physics.world.enable(exitZone,\n' +
+          '    Phaser.Physics.Arcade.STATIC_BODY);\n' +
+          '  scene.roomData.exitZone = exitZone;\n' +
+          '  scene.roomData.player = scene.player;\n' +
+          '}\n' +
+          'export function onUpdate(scene) {\n' +
+          '  const d = scene.roomData;\n' +
+          '  if (d.player && d.exitZone) {\n' +
+          '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
+          '      d.player.getBounds(), d.exitZone.getBounds());\n' +
+          '    if (hit) scene.exitRoom();\n' +
+          '  }\n' +
+          '  // per-frame animation here\n' +
+          '}\n' +
+          'export function onExit(scene) { scene.roomData = null; }',
+      },
+    ];
+  }
+
+  _openSignpost() {
+    this._signOpen = true;
+    this._signPage = 0;
+    this._renderSignPage();
+    for (const el of this._sovBase) el.setVisible(true);
+    this._signHint.setVisible(false);
+  }
+
+  _closeSignpost() {
+    this._signOpen = false;
+    for (const el of this._sovBase) el.setVisible(false);
+    this._sovCopyBtn.setVisible(false);
+  }
+
+  _renderSignPage() {
+    const page   = this._signPages[this._signPage];
+    const total  = this._signPages.length;
+    const isLast = this._signPage === total - 1;
+    this._sovTitle.setText(page.title);
+    this._sovContent.setText(page.body);
+    this._sovPageNum.setText(`${this._signPage + 1} / ${total}`);
+    this._sovNav.setText(
+      isLast
+        ? '[←] Back   [E / ESC] Close'
+        : '[←/→] Navigate   [E] Next   [ESC] Close',
+    );
+    const hasCopy = !!page.copyText;
+    this._sovCopyBtn.setVisible(hasCopy);
+    if (hasCopy) this._sovCopyBtn.setText('[ Copy Prompt ]');
+  }
+
+  _copyCurrentPrompt() {
+    const page = this._signPages[this._signPage];
+    if (!page.copyText) return;
+    navigator.clipboard.writeText(page.copyText)
+      .then(() => {
+        this._sovCopyBtn.setText('✓ Copied to clipboard!');
+        this.time.delayedCall(1800, () => {
+          if (this._signOpen) this._sovCopyBtn.setText('[ Copy Prompt ]');
+        });
+      })
+      .catch(() => {
+        this._sovCopyBtn.setText('Copy failed — try a different browser');
+        this.time.delayedCall(2500, () => {
+          if (this._signOpen) this._sovCopyBtn.setText('[ Copy Prompt ]');
+        });
+      });
   }
 }

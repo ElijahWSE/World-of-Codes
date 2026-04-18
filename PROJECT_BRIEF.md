@@ -213,6 +213,39 @@ Known fix applied during build:
 
 ---
 
+### PHASE 6 — PLANNED IMPROVEMENTS (not yet started)
+
+#### 6A — 2-Player Rooms
+Allow players to design rooms that support two players interacting with each other
+(e.g. cooperative puzzles, competitive mini-games, shared triggers).
+- Requires exposing other players' positions/state inside the room's `scene` object
+- Need to decide scope: just the two players in the same room, or synced with Colyseus?
+- Room template contract may need new hooks or a `players` array passed into onCreate/onUpdate
+
+#### 6B — Variable Room Sizes
+Let players choose a room size (small / medium / large) rather than the fixed 800×600 canvas.
+- RoomScene would need to pass width/height into the room module
+- Room template needs a `width` and `height` export (or a `config` export)
+- Camera bounds and exit zone positions would scale accordingly
+
+#### 6C — Town Square Redesign (community zone)
+Replace the plain checkerboard floor with a proper community space:
+- Decorative landmarks (fountain, benches, notice boards, trees)
+- Named zones or districts
+- Better visual identity so it feels like a living town, not an empty grid
+- Could include ambient animations (birds, clouds, wind effects)
+
+#### Pending: Improved Gemini Prompt (do not add to game yet)
+A richer Prompt 1 that produces more visually distinct rooms by:
+- Listing the exact safe Phaser API methods (prevents hallucinated method names like `cubicCurveTo`)
+- Instructing Gemini to avoid plain coloured rectangles as the primary visual style
+- Asking for at least one animated focal point
+- Explicit "Do NOT invent method names" guardrail with fillRect/fillCircle as fallback
+
+Full improved prompt text is saved in memory: `memory/pending_gemini_prompt.md`
+
+---
+
 ## General Rules (apply to all phases)
 
 - Never block on missing art — use colored rectangles and text for everything visual
