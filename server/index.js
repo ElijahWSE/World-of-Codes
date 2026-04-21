@@ -22,12 +22,12 @@ const ADMIN_HTML      = join(ROOT, 'admin.html');
 // Change this password before sharing the project URL with anyone.
 const ADMIN_PASSWORD  = 'worldofcodes';
 
-// Fixed coordinates for each door — must match WorldScene.js constants.
+// Fixed portal positions — must match the DOORS array in WorldScene.js.
 const DOOR_CONFIG = {
-  north: { key: 'room1', xExpr: 'MID_X',                 yExpr: 'WALL_T / 2',           emptyLabel: 'North Door' },
-  east:  { key: 'room2', xExpr: 'WORLD_W - WALL_T / 2',  yExpr: 'MID_Y',                emptyLabel: 'East Door'  },
-  south: { key: 'room3', xExpr: 'MID_X',                 yExpr: 'WORLD_H - WALL_T / 2', emptyLabel: 'South Door' },
-  west:  { key: 'room4', xExpr: 'WALL_T / 2',            yExpr: 'MID_Y',                emptyLabel: 'West Door'  },
+  north: { key: 'room1', x:  580, y:  490, color: '0x8B5CF6', emptyLabel: 'Portal 1' },
+  east:  { key: 'room2', x: 1220, y:  570, color: '0x10B981', emptyLabel: 'Portal 2' },
+  south: { key: 'room3', x:  620, y: 1010, color: '0x3B82F6', emptyLabel: 'Portal 3' },
+  west:  { key: 'room4', x: 1150, y:  950, color: '0xF59E0B', emptyLabel: 'Portal 4' },
 };
 
 function toKebabCase(str) {
@@ -81,7 +81,7 @@ function applyRoom(door, varName, fileName, code) {
   src = replaceBlock(src, 'IMPORT', door,
     `import * as ${varName} from '../rooms/${fileName}';`);
   src = replaceBlock(src, 'ENTRY', door,
-    `  { key: '${cfg.key}', label: ${varName}.name, wall: '${door}', x: ${cfg.xExpr}, y: ${cfg.yExpr}, roomModule: ${varName} },`);
+    `  { key: '${cfg.key}', label: ${varName}.name, x: ${cfg.x}, y: ${cfg.y}, color: ${cfg.color}, roomModule: ${varName} },`);
   writeFileSync(WORLD_SCENE, src, 'utf8');
 }
 
@@ -108,7 +108,7 @@ function clearRoom(door) {
   let src = readFileSync(WORLD_SCENE, 'utf8');
   src = replaceBlock(src, 'IMPORT', door, '');
   src = replaceBlock(src, 'ENTRY', door,
-    `  { key: '${cfg.key}', label: '${cfg.emptyLabel}', wall: '${door}', x: ${cfg.xExpr}, y: ${cfg.yExpr} },`);
+    `  { key: '${cfg.key}', label: '${cfg.emptyLabel}', x: ${cfg.x}, y: ${cfg.y}, color: ${cfg.color} },`);
   writeFileSync(WORLD_SCENE, src, 'utf8');
 }
 

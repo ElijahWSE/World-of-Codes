@@ -18,6 +18,11 @@
 //   scene.time       — set up timers and delayed events
 //   scene.tweens     — animate objects smoothly
 //
+// WORLD SIZE: 1600 × 1200 pixels
+//   Your world is 1600px wide and 1200px tall — the same size as the town square.
+//   The camera follows the player automatically, so players can explore the full space.
+//   Place your exit zone at the bottom centre: around x=800, y=1150.
+//
 // RULES — read carefully:
 //   ✅ DO: Create objects, text, shapes, and interactions inside the hooks
 //   ✅ DO: Store your room's objects in local variables inside each hook,
@@ -63,8 +68,8 @@ export function onLoad(scene) {
 //
 // Example:
 //   scene.roomData = {};
-//   scene.roomData.floor = scene.add.rectangle(400, 300, 800, 600, 0x3a1a5e);
-//   scene.add.text(400, 80, 'Welcome to My Room!', { fontSize: '24px', fill: '#fff' })
+//   scene.roomData.floor = scene.add.rectangle(800, 600, 1600, 1200, 0x3a1a5e);
+//   scene.add.text(800, 120, 'Welcome to My World!', { fontSize: '24px', fill: '#fff' })
 //     .setOrigin(0.5);
 // ─────────────────────────────────────────────────────────────────────────────
 export function onCreate(scene) {
@@ -102,3 +107,35 @@ export function onExit(scene) {
   // Cleanup your room here. Destroy objects, stop sounds, remove timers.
   // After this runs, the player is returned to the town square.
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPTIONAL: Mini-game (Club Penguin style)
+// If you want a playable mini-game inside your world, export these three things.
+// Players walk to the game zone, see "[E] Play: <gameName>", and press E to open
+// an 800×600 game overlay on top of the world.
+//
+// gameZoneX / gameZoneY — world coordinates of the game entrance trigger.
+//   Place a visual marker here in onCreate (a glowing spot, arcade machine, etc.)
+//
+// game — an object with 4 hooks. The game runs in an 800×600 overlay panel.
+//   Coordinates inside the game: x 0–800, y 65–590 (top 64px is the title bar).
+//   Call scene.exitGame() when the player finishes or quits.
+//
+// Example:
+//   export const gameZoneX = 800;
+//   export const gameZoneY = 500;
+//   export const game = {
+//     gameName: 'Catch the Stars',
+//     onGameLoad(scene) {},
+//     onGameCreate(scene) {
+//       scene.gameData = {};
+//       // build your game UI here
+//     },
+//     onGameUpdate(scene) {
+//       // per-frame game logic
+//     },
+//     onGameExit(scene) {
+//       scene.gameData = null;
+//     },
+//   };
+// ─────────────────────────────────────────────────────────────────────────────
