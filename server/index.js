@@ -130,6 +130,21 @@ class WorldRoom extends Room {
       }
     });
 
+    this.onMessage('enterRoom', (client, data) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) player.currentRoom = String(data?.key ?? 'world').slice(0, 32);
+    });
+
+    this.onMessage('roomMove', (client, data) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) { player.roomX = data.x; player.roomY = data.y; }
+    });
+
+    this.onMessage('exitRoom', (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) player.currentRoom = 'world';
+    });
+
     console.log('[WorldRoom] Created — waiting for players');
   }
 

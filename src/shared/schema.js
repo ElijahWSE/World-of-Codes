@@ -13,15 +13,21 @@ import { Schema, MapSchema, defineTypes } from '@colyseus/schema';
 export class PlayerState extends Schema {
   constructor() {
     super();
-    this.x    = 0;
-    this.y    = 0;
-    this.name = '';
+    this.x           = 0;
+    this.y           = 0;
+    this.name        = '';
+    this.currentRoom = 'world'; // 'world' or a door key like 'room1'
+    this.roomX       = 0;      // position inside the room
+    this.roomY       = 0;
   }
 }
 defineTypes(PlayerState, {
-  x:    'number',
-  y:    'number',
-  name: 'string',
+  x:           'number',
+  y:           'number',
+  name:        'string',
+  currentRoom: 'string',
+  roomX:       'number',
+  roomY:       'number',
 });
 
 export class WorldState extends Schema {

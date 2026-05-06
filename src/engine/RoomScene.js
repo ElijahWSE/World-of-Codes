@@ -25,12 +25,16 @@ export default class RoomScene extends Phaser.Scene {
   // ── init ─────────────────────────────────────────────────────────────────────
   // Runs before preload. Receives data passed by WorldScene.scene.start().
   init(data) {
-    this._roomModule  = data?.room        ?? null;  // the room's exported module
-    this._returnDoor  = data?.returnDoor  ?? null;  // door key to spawn at on return
-    this._playerName  = data?.playerName  ?? 'You'; // name shown above the player
-    this._roomUpdate  = null;   // set by loadRoom() on success
-    this._loaded      = false;  // true if the room loaded without errors
-    this._exited      = false;  // guard: prevents exitRoom from firing twice
+    this._roomModule    = data?.room          ?? null;  // the room's exported module
+    this._returnDoor    = data?.returnDoor    ?? null;  // door key to spawn at on return
+    this._playerName    = data?.playerName    ?? 'You'; // name shown above the player
+    this._colyseusRoom  = data?.colyseusRoom  ?? null;  // shared Colyseus connection
+    this._roomKey       = data?.roomKey       ?? null;  // e.g. 'room1'
+    this._roomUpdate    = null;
+    this._loaded        = false;
+    this._exited        = false;
+    this._lastSentRoomX = null;
+    this._lastSentRoomY = null;
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -100,6 +104,59 @@ export default class RoomScene extends Phaser.Scene {
     btnBg.on('pointerout',  () => btnBg.setFillStyle(0x222222));
     btnBg.on('pointerdown', () => this.exitRoom());
 
+    // ── Other players in this room ────────────────────────────────────────────
+    // _roomPlayers: Map of sessionId → { body, label } for rendering
+    // this.players: array of { name, x, y } exposed to room hooks via scene.players
+    this._roomPlayers = new Map();
+    this.players      = [];
+
+    if (this._colyseusRoom) {
+      this._colyseusRoom.onStateChange(state => {
+        const seenIds    = new Set();
+        const newPlayers = [];
+
+        state.players.forEach((ps, sessionId) => {
+          if (sessionId === this._colyseusRoom.sessionId) return;
+          if (ps.currentRoom !== this._roomKey) return;
+
+          seenIds.add(sessionId);
+          newPlayers.push({ name: ps.name, x: ps.roomX, y: ps.roomY });
+
+          const existing = this._roomPlayers.get(sessionId);
+          if (existing) {
+            existing.body.setPosition(ps.roomX, ps.roomY);
+            existing.label.setPosition(ps.roomX, ps.roomY - (existing.body._labelOffsetY ?? 24));
+          } else {
+            // If the room exports createOtherPlayer, use it — otherwise fall back to gray box.
+            let body;
+            try {
+              body = this._roomModule?.createOtherPlayer?.(this, { name: ps.name, x: ps.roomX, y: ps.roomY });
+              if (body) body.setDepth(10);
+            } catch (e) {
+              console.error('[RoomScene] createOtherPlayer threw:', e);
+              body = null;
+            }
+            if (!body) body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
+            const labelOffsetY = body._labelOffsetY ?? 24;
+            const label = this.add.text(ps.roomX, ps.roomY - labelOffsetY, ps.name, {
+              fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
+            }).setOrigin(0.5).setDepth(15);
+            this._roomPlayers.set(sessionId, { body, label });
+          }
+        });
+
+        this._roomPlayers.forEach((p, sessionId) => {
+          if (!seenIds.has(sessionId)) {
+            p.body.destroy();
+            p.label.destroy();
+            this._roomPlayers.delete(sessionId);
+          }
+        });
+
+        this.players = newPlayers;
+      });
+    }
+
     // ── exitRoom ──────────────────────────────────────────────────────────────
     // Defined before loadRoom() is called so room hooks can reference scene.exitRoom()
     // safely inside onCreate or onUpdate.
@@ -109,7 +166,9 @@ export default class RoomScene extends Phaser.Scene {
     this.exitRoom = () => {
       if (this._exited) return;
       this._exited = true;
-      this.scene.start('WorldScene', { returnDoor: this._returnDoor });
+      if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
+      this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
+      this.scene.stop();
     };
 
     // ── Game zone hint (only if room exports a game + gameZoneX/Y) ───────────
@@ -141,12 +200,14 @@ export default class RoomScene extends Phaser.Scene {
       this.exitRoom = () => {
         if (this._exited) return;
         this._exited = true;
+        if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
         try {
           this._roomModule.onExit(this);
         } catch (err) {
           console.error('[RoomScene] onExit threw:', err);
         }
-        this.scene.start('WorldScene', { returnDoor: this._returnDoor });
+        this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
+        this.scene.stop();
       };
     }
   }
@@ -180,6 +241,17 @@ export default class RoomScene extends Phaser.Scene {
       if (near && Phaser.Input.Keyboard.JustDown(this._keyE)) {
         this.scene.launch('GameScene', { game: this._roomModule.game });
         this.scene.pause();
+      }
+    }
+
+    // ── Sync room position to server ──────────────────────────────────────────
+    if (this._colyseusRoom) {
+      const px = Math.round(this.player.x);
+      const py = Math.round(this.player.y);
+      if (px !== this._lastSentRoomX || py !== this._lastSentRoomY) {
+        this._colyseusRoom.send('roomMove', { x: px, y: py });
+        this._lastSentRoomX = px;
+        this._lastSentRoomY = py;
       }
     }
 

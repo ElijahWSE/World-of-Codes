@@ -21,7 +21,7 @@ import * as ExampleRoom from '../rooms/example-room.js';
 import * as UnderwaterWorld from '../rooms/underwater-world.js';
 // [DOOR-IMPORT:east-end]
 // [DOOR-IMPORT:south-start]
-import * as TropicalSurfHaven from '../rooms/tropical-surf-haven.js';
+import * as BasketBallCourt from '../rooms/basket-ball-court.js';
 // [DOOR-IMPORT:south-end]
 // [DOOR-IMPORT:west-start]
 import * as VibrantCityCenter from '../rooms/vibrant-city-center.js';
@@ -50,8 +50,8 @@ const DOORS = [
   { key: 'room2', label: UnderwaterWorld.name, x: 1220, y: 570, color: 0x10B981, roomModule: UnderwaterWorld },
 // [DOOR-ENTRY:east-end]
   // [DOOR-ENTRY:south-start]
-  { key: 'room3', label: TropicalSurfHaven.name, x:  620, y: 1010, color: 0x3B82F6, roomModule: TropicalSurfHaven },
-  // [DOOR-ENTRY:south-end]
+  { key: 'room3', label: BasketBallCourt.name, x: 620, y: 1010, color: 0x3B82F6, roomModule: BasketBallCourt },
+// [DOOR-ENTRY:south-end]
   // [DOOR-ENTRY:west-start]
   { key: 'room4', label: VibrantCityCenter.name, x: 1150, y:  950, color: 0xF59E0B, roomModule: VibrantCityCenter },
   // [DOOR-ENTRY:west-end]
@@ -100,12 +100,24 @@ export default class WorldScene extends Phaser.Scene {
     this._setupInput();
     this._connectMultiplayer();
 
-    // Leave the Colyseus room cleanly when this scene shuts down (e.g. entering a room).
+    // Leave Colyseus cleanly only when the scene is fully stopped (not on sleep).
     this.events.once('shutdown', () => {
       if (this.colyseusRoom) {
         this.colyseusRoom.leave();
         this.colyseusRoom = null;
       }
+    });
+
+    // On wake (returning from a room): reposition the player at the door they exited.
+    this.events.on('wake', (sys, data) => {
+      this._returnDoor = data?.returnDoor ?? null;
+      if (this._returnDoor) {
+        const door = DOORS.find(d => d.key === this._returnDoor);
+        if (door) this.player.body.reset(door.x, door.y + 100);
+      }
+      this.doorZones.forEach(d => d.triggered = false);
+      this._lastSentX = null;
+      this._lastSentY = null;
     });
   }
 
@@ -411,8 +423,10 @@ export default class WorldScene extends Phaser.Scene {
   // Each portal is an animated container: outer spinning orbs, inner counter-spin,
   // and a pulsing core. Entering the portal's radius triggers the room transition.
   _createPortals() {
+    this._portalCountTexts = new Map(); // door key → Text showing occupant count
     this.doorZones = DOORS.map(door => {
-      this._drawPortal(door);
+      const countText = this._drawPortal(door);
+      this._portalCountTexts.set(door.key, countText);
       return { ...door, triggered: false };
     });
   }
@@ -478,6 +492,12 @@ export default class WorldScene extends Phaser.Scene {
     this.add.text(x, y - 80, label, {
       fontSize: '13px', fill: '#ffffff', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(20);
+
+    // Player count badge — starts empty, updated by onStateChange
+    const countText = this.add.text(x, y - 62, '', {
+      fontSize: '11px', fill: '#aaffaa', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(20);
+    return countText;
   }
 
   // ── Player ────────────────────────────────────────────────────────────────
@@ -563,15 +583,23 @@ export default class WorldScene extends Phaser.Scene {
           state.players.forEach((playerState, sessionId) => {
             if (sessionId === room.sessionId) return; // skip self
 
+            const inRoom   = playerState.currentRoom !== 'world';
             const existing = this.otherPlayers.get(sessionId);
+
+            if (inRoom) {
+              // Hide players who are currently inside a room
+              if (existing) { existing.body.setVisible(false); existing.label.setVisible(false); }
+              return;
+            }
+
             if (existing) {
-              // Update position of already-rendered player
+              existing.body.setVisible(true);
+              existing.label.setVisible(true);
               existing.body.setPosition(playerState.x, playerState.y);
               existing.label.setPosition(playerState.x, playerState.y - 24);
               existing.body.setDepth(5 + playerState.y / 200);
               existing.label.setDepth(5.1 + playerState.y / 200);
             } else {
-              // New player — create their rectangle and label
               console.log(`[Colyseus] Player joined: ${playerState.name} (${sessionId})`);
               const body = this.add.rectangle(
                 playerState.x, playerState.y, 32, 32, 0x888888
@@ -585,7 +613,7 @@ export default class WorldScene extends Phaser.Scene {
             }
           });
 
-          // ── Remove players who have left ───────────────────────────────
+          // ── Remove players who have disconnected ───────────────────────
           this.otherPlayers.forEach((p, sessionId) => {
             if (!state.players.has(sessionId)) {
               console.log(`[Colyseus] Player left: ${sessionId}`);
@@ -593,6 +621,18 @@ export default class WorldScene extends Phaser.Scene {
               p.label.destroy();
               this.otherPlayers.delete(sessionId);
             }
+          });
+
+          // ── Update portal occupant counts ──────────────────────────────
+          const roomCounts = new Map();
+          state.players.forEach(ps => {
+            if (ps.currentRoom !== 'world') {
+              roomCounts.set(ps.currentRoom, (roomCounts.get(ps.currentRoom) ?? 0) + 1);
+            }
+          });
+          this._portalCountTexts.forEach((text, key) => {
+            const n = roomCounts.get(key) ?? 0;
+            text.setText(n > 0 ? `● ${n} inside` : '');
           });
         });
       })
@@ -670,11 +710,15 @@ export default class WorldScene extends Phaser.Scene {
       if (dist < PORTAL_RADIUS && !door.triggered) {
         door.triggered = true;
         if (door.roomModule) {
-          this.scene.start('RoomScene', {
-            room:        door.roomModule,
-            returnDoor:  door.key,
-            playerName:  this.playerName,
+          if (this.colyseusRoom) this.colyseusRoom.send('enterRoom', { key: door.key });
+          this.scene.launch('RoomScene', {
+            room:         door.roomModule,
+            returnDoor:   door.key,
+            playerName:   this.playerName,
+            colyseusRoom: this.colyseusRoom,
+            roomKey:      door.key,
           });
+          this.scene.sleep();
         } else {
           console.log(`[WorldScene] Portal "${door.label}" has no room assigned yet.`);
         }
@@ -811,18 +855,37 @@ export default class WorldScene extends Phaser.Scene {
       '  (drawn as tall rectangles, not just flat squares)\n' +
       '- Players feel like they are walking THROUGH a world, not looking straight down at it\n' +
       '\n' +
-      'Create an interactive preview using a mock Phaser scene so I can\n' +
-      'see what it looks like. The world should:\n' +
-      '- Have a distinct visual style matching my theme (rectangles, circles, stars, text)\n' +
-      '- Include animated elements (tweens for movement, blinking, spinning, etc.)\n' +
-      '- Have an EXIT zone at the bottom centre of the world (around x=800, y=1150)\n' +
+      'VISUAL QUALITY — very important:\n' +
+      '- Have a strong visual identity — avoid using plain coloured rectangles as the main style\n' +
+      '- Include at least one animated focal point (glowing orb, fire, flowing water, drifting particles)\n' +
       '\n' +
-      'Store all the actual room logic inside a const called roomCode with:\n' +
+      'Use ONLY these exact Phaser.js drawing methods. Do NOT invent or guess method names:\n' +
+      '\n' +
+      '  Graphics (const gfx = scene.add.graphics()):\n' +
+      '    gfx.fillStyle(0xRRGGBB, alpha)\n' +
+      '    gfx.fillRect(x, y, width, height)\n' +
+      '    gfx.fillCircle(x, y, radius)\n' +
+      '    gfx.fillTriangle(x1,y1, x2,y2, x3,y3)\n' +
+      '    gfx.fillPoints([{x,y}, {x,y}, ...], true)\n' +
+      '    gfx.beginPath() / moveTo(x,y) / lineTo(x,y) / closePath() / fillPath() / strokePath()\n' +
+      '    gfx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)   ← inside beginPath() only\n' +
+      '    gfx.lineStyle(width, 0xRRGGBB, alpha)\n' +
+      '    gfx.setBlendMode(Phaser.BlendModes.ADD)            ← for glow effects\n' +
+      '  Other: scene.add.text / .rectangle / .circle   obj.setDepth(n) / setAlpha(0–1)\n' +
+      '  Tweens: scene.tweens.add({ targets, props, duration, yoyo, repeat })\n' +
+      '\n' +
+      'Create an interactive preview using a mock Phaser scene so I can\n' +
+      'see what it looks like. Store all the room logic inside a const called roomCode with:\n' +
       '  name       — a string with the world\'s display name\n' +
       '  onLoad     — function(scene) for loading assets\n' +
       '  onCreate   — function(scene) for building the world\n' +
       '  onUpdate   — function(scene) for per-frame animations and the exit check\n' +
       '  onExit     — function(scene) for cleanup (set scene.roomData = null)\n' +
+      '\n' +
+      'PLAYER CHARACTER (optional): if your world has a themed character,\n' +
+      'build it in onCreate and assign it to scene.player:\n' +
+      '  scene.player = /* your character container */;\n' +
+      '  scene.cameras.main.startFollow(scene.player, true, 0.1, 0.1);\n' +
       '\n' +
       'Inside onCreate, always include this exit trigger block at the end:\n' +
       '  const exitZone = scene.add.zone(800, 1155, 120, 40);\n' +
@@ -848,13 +911,30 @@ export default class WorldScene extends Phaser.Scene {
       '\n' +
       'STRICT RULES for the output:\n' +
       '  ✅ Return ONLY what is between the template markers — nothing else\n' +
-      '  ✅ Keep all 5 export statements exactly as named\n' +
+      '  ✅ Keep all 5 required export statements exactly as named\n' +
       '  ✅ Keep the exit trigger block in onCreate exactly as shown\n' +
       '  ✅ Keep the exit check block in onUpdate exactly as shown\n' +
+      '  ✅ If you created a themed player character, uncomment createOtherPlayer\n' +
+      '     and fill it with the same shapes (no physics) — see instructions below\n' +
       '  ❌ Do NOT add import, require(), or export default at the top\n' +
       '  ❌ Do NOT wrap in React, HTML, or any framework\n' +
       '  ❌ Do NOT include any explanation, commentary, or code fences\n' +
       '  ❌ Do NOT use fetch(), document, localStorage, or window\n' +
+      '\n' +
+      'PLAYER CHARACTER (optional):\n' +
+      'If your world has a themed character, do BOTH of the following:\n' +
+      '  1. In onCreate, build your character and assign it to scene.player:\n' +
+      '       const player = scene.add.container(800, 750);\n' +
+      '       player.add( /* your character shapes */ );\n' +
+      '       scene.physics.world.enable(player);\n' +
+      '       player.body.setCollideWorldBounds(true);\n' +
+      '       scene.player = player;\n' +
+      '       scene.cameras.main.startFollow(player, true, 0.1, 0.1);\n' +
+      '  2. Uncomment createOtherPlayer at the bottom of the template.\n' +
+      '     Fill it with the same character shapes but WITHOUT physics.\n' +
+      '     Set container._labelOffsetY to the pixel height from the\n' +
+      '     container origin (feet) to just above the character\'s head.\n' +
+      'If your world does NOT have a custom character, leave createOtherPlayer commented out.\n' +
       '\n' +
       '--- START OF TEMPLATE ---\n' +
       '\n' +
@@ -895,6 +975,14 @@ export default class WorldScene extends Phaser.Scene {
       'export function onExit(scene) {\n' +
       '  scene.roomData = null;\n' +
       '}\n' +
+      '\n' +
+      '// ── Uncomment if you built a themed player character above ───────────\n' +
+      '// export function createOtherPlayer(scene, { x, y }) {\n' +
+      '//   const container = scene.add.container(x, y);\n' +
+      '//   // ── same shapes as your local player, no physics ──────────────\n' +
+      '//   container._labelOffsetY = 48; // pixels from origin to above head\n' +
+      '//   return container;\n' +
+      '// }\n' +
       '\n' +
       '--- END OF TEMPLATE ---';
 
@@ -975,28 +1063,17 @@ export default class WorldScene extends Phaser.Scene {
           'I want to design a world for a 2D top-down game built\n' +
           'with Phaser.js. My world theme is: [YOUR THEME HERE]\n' +
           '\n' +
-          'Create an interactive preview. The world should:\n' +
-          '  - 1600×1200 with camera following the player\n' +
-          '  - Visual style matching my theme (shapes, text, colours)\n' +
-          '  - Animated elements (tweens, blinking, spinning)\n' +
-          '  - EXIT zone at the bottom centre (around x=800, y=1150)\n' +
+          'PERSPECTIVE: Pokemon/RPG oblique view — sky at top (y:0–300),\n' +
+          'ground below (y:300–1200), objects with visible height.\n' +
           '\n' +
-          'Store logic in a const roomCode with: name, onLoad, onCreate, onUpdate, onExit\n' +
+          'VISUAL QUALITY:\n' +
+          '  - Strong visual identity — not just plain coloured rectangles\n' +
+          '  - At least one animated focal point (glow, fire, water, particles)\n' +
           '\n' +
-          'In onCreate, end with exit trigger:\n' +
-          '  const exitZone = scene.add.zone(800, 1155, 120, 40);\n' +
-          '  scene.physics.world.enable(exitZone, Phaser.Physics.Arcade.STATIC_BODY);\n' +
-          '  scene.roomData.exitZone = exitZone;\n' +
-          '  scene.roomData.player = scene.player;\n' +
+          'SAFE API: The copied prompt gives Gemini an exact list of Phaser\n' +
+          'methods it may use — prevents hallucinated method names.\n' +
           '\n' +
-          'In onUpdate, include exit check:\n' +
-          '  const d = scene.roomData;\n' +
-          '  if (d.player && d.exitZone) {\n' +
-          '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
-          '      d.player.getBounds(), d.exitZone.getBounds());\n' +
-          '    if (hit) scene.exitRoom();\n' +
-          '  }\n' +
-          '\n' +
+          'Exit zone, exit check, and roomCode structure are all included.\n' +
           'Show me the preview so I can test it and ask for changes.',
       },
       {
@@ -1011,15 +1088,16 @@ export default class WorldScene extends Phaser.Scene {
           '\n' +
           'STRICT RULES:\n' +
           '  ✅ Return ONLY what is between the template markers\n' +
-          '  ✅ Keep all 5 export statements exactly as named\n' +
+          '  ✅ Keep all 5 required export statements exactly as named\n' +
           '  ✅ Keep the exit trigger in onCreate exactly as shown\n' +
           '  ✅ Keep the exit check in onUpdate exactly as shown\n' +
+          '  ✅ If you made a themed player, uncomment createOtherPlayer\n' +
           '  ❌ No import, require(), or export default at the top\n' +
           '  ❌ No React, HTML, or any framework\n' +
           '  ❌ No explanation, commentary, or code fences\n' +
           '  ❌ No fetch(), document, localStorage, or window\n' +
           '\n' +
-          '(Page 4 shows the full code template included in the copied prompt)',
+          '(Page 4 shows the full template including the player character section)',
       },
       {
         title: 'PROMPT 2 — Code Template',
@@ -1027,30 +1105,26 @@ export default class WorldScene extends Phaser.Scene {
         body:
           'This template is automatically included when you Copy Prompt on page 3.\n' +
           '\n' +
-          "export const name = 'My World'; // ← your world name\n" +
+          "export const name = 'My World';\n" +
           'export function onLoad(scene) {}\n' +
           'export function onCreate(scene) {\n' +
           '  scene.roomData = {};\n' +
-          '  // your world design here (1600×1200)\n' +
-          "  scene.add.rectangle(800, 1160, 120, 30, 0x333333);\n" +
-          "  scene.add.text(800, 1160, 'EXIT', {\n" +
-          "    fontSize: '16px', fill: '#ffffff' }).setOrigin(0.5);\n" +
-          '  const exitZone = scene.add.zone(800, 1155, 120, 40);\n' +
-          '  scene.physics.world.enable(exitZone,\n' +
-          '    Phaser.Physics.Arcade.STATIC_BODY);\n' +
-          '  scene.roomData.exitZone = exitZone;\n' +
-          '  scene.roomData.player = scene.player;\n' +
+          '  // world design here (1600×1200)\n' +
+          '  // optional: build themed player → assign to scene.player\n' +
+          '  // exit trigger block (exact, as-is)\n' +
           '}\n' +
           'export function onUpdate(scene) {\n' +
-          '  const d = scene.roomData;\n' +
-          '  if (d.player && d.exitZone) {\n' +
-          '    const hit = Phaser.Geom.Intersects.RectangleToRectangle(\n' +
-          '      d.player.getBounds(), d.exitZone.getBounds());\n' +
-          '    if (hit) scene.exitRoom();\n' +
-          '  }\n' +
-          '  // per-frame animation here\n' +
+          '  // exit check (exact, as-is) + per-frame animations\n' +
           '}\n' +
-          'export function onExit(scene) { scene.roomData = null; }',
+          'export function onExit(scene) { scene.roomData = null; }\n' +
+          '\n' +
+          '// ── Uncomment if you built a themed player ───────────────────\n' +
+          '// export function createOtherPlayer(scene, { x, y }) {\n' +
+          '//   const container = scene.add.container(x, y);\n' +
+          '//   // same shapes as local player, no physics\n' +
+          '//   container._labelOffsetY = 48; // above head in px\n' +
+          '//   return container;\n' +
+          '// }',
       },
       {
         title: 'OPTIONAL: Add a Mini-Game (Prompt B)',
