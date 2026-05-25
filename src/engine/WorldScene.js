@@ -983,19 +983,27 @@ export default class WorldScene extends Phaser.Scene {
       '--- END OF TEMPLATE ---';
 
     const PROMPT_GAME =
-      'I want to add a mini-game to my world. This is a SEPARATE file from my room code.\n' +
+      'I want to create a mini-game for my world.\n' +
       '\n' +
-      'The mini-game runs as an 800×600 overlay on top of my world (Club Penguin style).\n' +
-      'Players press [E] near my game anchor object to open it.\n' +
+      'MY WORLD THEME: [YOUR WORLD THEME HERE — e.g. "Crystal Cave", "Underwater World"]\n' +
       '\n' +
-      'Create a game file with exactly this structure:\n' +
+      'MY GAME IDEA: [DESCRIBE YOUR GAME HERE — e.g. "a ball-catching game where I move\n' +
+      'a basket left and right to catch falling gems", "a memory card matching game with\n' +
+      'cave crystals", "dodge the obstacles as they scroll toward you"]\n' +
+      '\n' +
+      'The mini-game runs as an 800×600 overlay panel on top of my world (Club Penguin\n' +
+      'style). Players press [E] near an interactive object in my world to open it.\n' +
+      'The game should match or complement my world theme.\n' +
+      '\n' +
+      'First, show me a playable preview of the game so I can test it and ask for changes.\n' +
+      'Then output the final code using EXACTLY this structure — nothing else:\n' +
       '\n' +
       'export const game = {\n' +
       "  gameName: 'Your Game Name',   // ← short name shown in the title bar\n" +
       '  onGameLoad(scene) {},\n' +
       '  onGameCreate(scene) {\n' +
       '    scene.gameData = {};\n' +
-      '    // Build your mini-game here.\n' +
+      '    // Build the game UI here.\n' +
       '    // Coordinate space: x 0–800, y 65–590 (top 64px is the title bar).\n' +
       '    // Call scene.exitGame() when the game ends (win/lose/quit).\n' +
       '  },\n' +
@@ -1008,16 +1016,13 @@ export default class WorldScene extends Phaser.Scene {
       '};\n' +
       '\n' +
       'STRICT RULES:\n' +
-      '  ✅ Export only the game object — nothing else required\n' +
+      '  ✅ Export only the game object — nothing else\n' +
       '  ✅ game must have all 4 methods: onGameLoad, onGameCreate, onGameUpdate, onGameExit\n' +
-      '  ✅ Use scene.gameData to store game state\n' +
+      '  ✅ Use scene.gameData to store all game state\n' +
       '  ✅ Call scene.exitGame() when the game is finished\n' +
-      '  ✅ Keep game coordinates within x:0–800, y:65–590\n' +
+      '  ✅ Keep all coordinates within x:0–800, y:65–590\n' +
       '  ❌ Do NOT use import, require(), fetch(), document, or window\n' +
-      '  ❌ Do NOT include the room code — this file only contains the game\n' +
-      '\n' +
-      'My world theme is: [YOUR THEME HERE]\n' +
-      'The game should match or complement my world theme.\n' +
+      '  ❌ Do NOT include the room code — this file is the game only\n' +
       '\n' +
       'Output ONLY the complete game file — no explanation.';
 
@@ -1129,20 +1134,26 @@ export default class WorldScene extends Phaser.Scene {
         body:
           'Want a playable mini-game inside your world? (Club Penguin style!)\n' +
           '\n' +
-          'HOW IT WORKS:\n' +
-          '  - Place a visible interactive object in your world (a screen,\n' +
-          '    arcade machine, glowing chest — your choice)\n' +
-          '  - Export its position: gameAnchorX and gameAnchorY (in Prompt 2)\n' +
-          '  - Players walk near it and see "[E] ???" until a game is attached\n' +
-          '  - Once a game is approved, it becomes "[E] Play: <name>"\n' +
+          'BEFORE YOU COPY THE PROMPT, decide two things:\n' +
+          '  1. Your game idea — what will players actually do?\n' +
+          '     e.g. "catch falling stars", "memory card matching",\n' +
+          '          "dodge obstacles scrolling toward you"\n' +
+          '  2. Your world theme (same as your room)\n' +
+          '     e.g. "Crystal Cave", "Underwater World"\n' +
           '\n' +
-          'THE GAME IS A SEPARATE FILE:\n' +
-          '  - Use a NEW Gemini conversation (or continue your existing one)\n' +
-          '  - Click "Copy Prompt" and paste Prompt B into Gemini\n' +
-          '  - Send the game code to the admin separately for approval\n' +
+          'STEPS:\n' +
+          '  1. Click "Copy Prompt" below\n' +
+          '  2. Paste into a NEW Gemini conversation\n' +
+          '  3. Fill in the two placeholders at the TOP of the prompt:\n' +
+          '       MY WORLD THEME: [replace this]\n' +
+          '       MY GAME IDEA:   [replace this with your idea]\n' +
+          '  4. Gemini shows a preview — test and tweak it\n' +
+          '  5. Copy the final game code and send to the admin\n' +
           '\n' +
-          'Game area: 800×600 overlay. Avoid y < 65 (title bar).\n' +
-          'Game and world are reviewed and approved independently.',
+          'HOW IT WORKS IN-GAME:\n' +
+          '  - Your room must have a game anchor object (gameAnchorX/Y)\n' +
+          '  - Players walk near it → see "[E] ???"\n' +
+          '  - Once approved → "[E] Play: <your game name>"',
       },
     ];
   }

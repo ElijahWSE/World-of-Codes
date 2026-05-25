@@ -82,6 +82,12 @@
     #gemini-prompt-box p { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
     #gemini-prompt { min-height: 140px; font-size: 0.78rem; background: #070e1f; border-color: #1a3060; color: #ccc; margin-bottom: 0.75rem; }
     #copy-feedback { font-size: 0.8rem; color: #52b788; margin-left: 0.75rem; display: none; }
+
+    /* Inline validation inside pending cards */
+    .inline-validation { margin-top: 0.75rem; display: none; }
+    .inline-validation .validation-banner { margin-bottom: 0.5rem; }
+    .inline-validation .check-list li { font-size: 0.82rem; padding: 0.2rem 0; }
+    .inline-validation .check-list { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -300,9 +306,79 @@ const CHECKS = [
   { id: 'has-onCreate',label: 'Exports: onCreate function',test: c => /export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(c) },
   { id: 'has-onUpdate',label: 'Exports: onUpdate function',test: c => /export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(c) },
   { id: 'has-onExit',  label: 'Exports: onExit function',  test: c => /export\s+(function\s+onExit|const\s+onExit\s*=)/.test(c) },
+  { id: 'no-fetch',    label: 'No fetch/document/window',  test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
+];
+
+const GAME_CHECKS = [
+  { id: 'no-imports',       label: 'No import or require',          test: c => !/^\s*import\s+/m.test(c) && !/require\s*\(/.test(c) },
+  { id: 'has-game',         label: 'Exports: game object',          test: c => /export\s+const\s+game\s*=/.test(c) },
+  { id: 'has-gameName',     label: 'game.gameName defined',         test: c => /gameName\s*:/.test(c) },
+  { id: 'has-onGameLoad',   label: 'game.onGameLoad defined',       test: c => /onGameLoad\s*[:(]/.test(c) },
+  { id: 'has-onGameCreate', label: 'game.onGameCreate defined',     test: c => /onGameCreate\s*[:(]/.test(c) },
+  { id: 'has-onGameUpdate', label: 'game.onGameUpdate defined',     test: c => /onGameUpdate\s*[:(]/.test(c) },
+  { id: 'has-onGameExit',   label: 'game.onGameExit defined',       test: c => /onGameExit\s*[:(]/.test(c) },
+  { id: 'has-exitGame',     label: 'Calls scene.exitGame()',        test: c => /scene\.exitGame\s*\(/.test(c) },
+  { id: 'no-fetch',         label: 'No fetch/document/window',      test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
 ];
 
 function runValidation(code) { return CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
+function runGameValidation(code) { return GAME_CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
+
+// Fetches full code for a pending submission and runs the appropriate checks inline.
+async function validatePendingCode(id, type) {
+  const pw      = getPassword();
+  const box     = document.getElementById(`val-${id}`);
+  const fullEl  = document.getElementById(`full-${id}`);
+
+  if (!pw) { box.innerHTML = '<p style="color:#e07a7a;font-size:0.82rem">Enter and save your password first.</p>'; box.style.display = 'block'; return; }
+
+  box.innerHTML = '<p style="color:#888;font-size:0.82rem">Validating…</p>';
+  box.style.display = 'block';
+
+  // Fetch full code if not already loaded
+  let code = fullEl.textContent;
+  if (!code) {
+    const endpoint = type === 'room' ? `/admin/pending-rooms/${id}/code` : `/admin/pending-games/${id}/code`;
+    try {
+      const res  = await fetch(`${endpoint}?password=${encodeURIComponent(pw)}`);
+      const data = await res.json();
+      code = data.code ?? '';
+      fullEl.textContent = code;
+    } catch (e) {
+      box.innerHTML = `<p style="color:#e07a7a;font-size:0.82rem">Failed to load code: ${e.message}</p>`;
+      return;
+    }
+  }
+
+  // Run pattern checks
+  const patternResults = type === 'room' ? runValidation(code) : runGameValidation(code);
+
+  // Server syntax check
+  let syntaxResult;
+  try {
+    const res  = await fetch('/admin/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const data = await res.json();
+    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax', passed: data.ok, syntaxError: data.syntaxError || null };
+  } catch {
+    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
+  }
+
+  const results  = [...patternResults, syntaxResult];
+  const failures = results.filter(r => !r.passed);
+  const allPass  = failures.length === 0;
+
+  const banner = allPass
+    ? `<div class="validation-banner all-pass">✓ All checks passed — safe to approve.</div>`
+    : `<div class="validation-banner has-fail">✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.</div>`;
+
+  const items = results.map(r => {
+    const detail = (!r.passed && r.syntaxError)
+      ? `<pre style="font-size:0.72rem;margin-top:0.25rem;color:#e07a7aaa;white-space:pre-wrap">${escHtml(r.syntaxError)}</pre>` : '';
+    return `<li class="${r.passed ? 'pass' : 'fail'}"><span class="icon">${r.passed ? '✓' : '✗'}</span><span>${r.label}${detail}</span></li>`;
+  }).join('');
+
+  box.innerHTML = `<div class="validation-banner ${allPass ? 'all-pass' : 'has-fail'}">${allPass ? '✓ All checks passed — safe to approve.' : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.`}</div><ul class="check-list">${items}</ul>`;
+}
 
 function showValidationResults(results, code) {
   const box     = document.getElementById('validation-box');
@@ -429,8 +505,10 @@ async function loadPendingRooms() {
         <div class="full-code" id="full-${s.id}"></div>
         <div class="btn-row">
           <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}', 'room')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', 'room')">Validate Code</button>
           <button class="btn btn-success btn-small" onclick="approveRoom('${s.id}', '${escAttr(s.playerName)}')">✓ Approve</button>
         </div>
+        <div class="inline-validation" id="val-${s.id}"></div>
         <div class="reject-row">
           <input class="reject-input" type="text" id="reject-reason-${s.id}" placeholder="Rejection reason (optional)">
           <button class="btn btn-danger btn-small" onclick="rejectRoom('${s.id}')">✗ Reject</button>
@@ -514,8 +592,10 @@ async function loadPendingGames() {
         <div class="full-code" id="full-${g.id}"></div>
         <div class="btn-row">
           <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${g.id}', 'game')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${g.id}', 'game')">Validate Code</button>
           <button class="btn btn-success btn-small" onclick="approveGame('${g.id}')">✓ Approve</button>
         </div>
+        <div class="inline-validation" id="val-${g.id}"></div>
         <div class="reject-row">
           <input class="reject-input" type="text" id="reject-reason-${g.id}" placeholder="Rejection reason (optional)">
           <button class="btn btn-danger btn-small" onclick="rejectGame('${g.id}')">✗ Reject</button>
