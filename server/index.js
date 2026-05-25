@@ -274,7 +274,7 @@ const gameServer = new Server({
       res.json({ ok: true, message });
     });
 
-    // Admin submits game code for a slot (via admin panel)
+    // Submit game code for a slot (players in-game or admin panel)
     app.post('/api/submit-game', (req, res) => {
       const { slotKey, submittedBy, sessionId, code } = req.body ?? {};
       if (!PORTAL_SLOTS.find(s => s.key === slotKey))
@@ -283,16 +283,24 @@ const gameServer = new Server({
         return res.status(400).json({ error: 'No room approved for that slot yet' });
       if (!code?.trim())
         return res.status(400).json({ error: 'Game code required' });
+      for (const g of pendingGames.values()) {
+        if (g.slotKey === slotKey)
+          return res.status(400).json({ error: 'That slot already has a pending game submission. Please wait for the current one to be reviewed.' });
+      }
       const errors = validateGameCode(code);
       if (errors.length > 0)
         return res.status(400).json({ errors });
+      const isUpdate = !!(slotAssignments.get(slotKey)?.gameFileName);
       const id = `game_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       pendingGames.set(id, {
         id, slotKey, submittedBy: submittedBy ?? 'admin',
-        sessionId: sessionId ?? null, code, submittedAt: Date.now(),
+        sessionId: sessionId ?? null, code, submittedAt: Date.now(), isUpdate,
       });
-      console.log(`[Submit] Game for slot ${slotKey}`);
-      res.json({ ok: true, message: 'Game submitted for review.' });
+      console.log(`[Submit] Game ${isUpdate ? 'update' : 'new'} for slot ${slotKey}`);
+      const message = isUpdate
+        ? 'Game update submitted! The admin will review and replace the current game.'
+        : 'Game submitted for review.';
+      res.json({ ok: true, message });
     });
 
     // ── Admin: list pending ────────────────────────────────────────────────────

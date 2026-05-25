@@ -87,6 +87,8 @@ export default class RoomScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     });
     this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this._keyG = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
+    this.input.keyboard.on('keydown-ESC', () => { if (this._gameOverlayOpen) this._closeGameOverlay(); });
 
     // ── Back button ───────────────────────────────────────────────────────────
     // Fixed to the screen (scrollFactor 0) and always rendered on top (depth 200).
@@ -176,7 +178,10 @@ export default class RoomScene extends Phaser.Scene {
     // ── Game anchor hint ──────────────────────────────────────────────────────
     // gameAnchorX/Y = new separate-game system (Phase 7+)
     // gameZoneX/Y   = legacy in-file game system (Phase 6, still supported)
-    this._gameHint = null;
+    this._gameHint       = null;
+    this._gameSubmitHint = null;
+    this._gameOverlayEl  = null;
+    this._gameOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
     this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
 
@@ -185,6 +190,13 @@ export default class RoomScene extends Phaser.Scene {
       this._gameHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 64,
         '[E]  ???', {
         fontSize: '13px', fill: '#888866',
+        stroke: '#000000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(20).setVisible(false);
+
+      // Submit hint — always available so players can paste their game code
+      this._gameSubmitHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 82,
+        '[G]  Submit Game', {
+        fontSize: '12px', fill: '#88ccff',
         stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(20).setVisible(false);
     }
@@ -258,16 +270,27 @@ export default class RoomScene extends Phaser.Scene {
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
+    // ── Freeze movement while game submit overlay is open ─────────────────────
+    if (this._gameOverlayOpen) {
+      body.setVelocity(0);
+      this._nameTag.setPosition(this.player.x, this.player.y - 24);
+      return;
+    }
+
     // ── Game anchor proximity ─────────────────────────────────────────────────
-    if (this._gameHint && this._gameAnchorX !== undefined) {
+    if (this._gameAnchorX !== undefined) {
       const dist = Phaser.Math.Distance.Between(
         this.player.x, this.player.y, this._gameAnchorX, this._gameAnchorY,
       );
       const near = dist < 80;
-      this._gameHint.setVisible(near);
+      if (this._gameHint)       this._gameHint.setVisible(near);
+      if (this._gameSubmitHint) this._gameSubmitHint.setVisible(near);
       if (near && this._gameModule?.game && Phaser.Input.Keyboard.JustDown(this._keyE)) {
         this.scene.launch('GameScene', { game: this._gameModule.game });
         this.scene.pause();
+      }
+      if (near && Phaser.Input.Keyboard.JustDown(this._keyG)) {
+        this._openGameOverlay();
       }
     }
 
@@ -296,5 +319,98 @@ export default class RoomScene extends Phaser.Scene {
       'No room module was provided.\nPress the Back button to return.',
       { fontSize: '16px', fill: '#ff4444', align: 'center' }
     ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+  }
+
+  // ── Game Submit Overlay ────────────────────────────────────────────────────
+  _createGameOverlay() {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Game Code</h2>
+        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
+        <label style="display:block;margin-bottom:0.75rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
+          <input id="woc-game-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
+            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        </label>
+        <label style="display:block;margin-bottom:1rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Game Code (paste from Gemini)</span>
+          <textarea id="woc-game-code" placeholder="// Paste your game code here..."
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+        </label>
+        <div id="woc-game-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-game-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-game-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Game</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._gameOverlayEl = el;
+    document.getElementById('woc-game-cancel').onclick = () => this._closeGameOverlay();
+    document.getElementById('woc-game-submit').onclick = () => this._submitGameCode();
+  }
+
+  _openGameOverlay() {
+    if (!this._gameOverlayEl) this._createGameOverlay();
+    this._gameOverlayEl.style.display = 'flex';
+    document.getElementById('woc-game-name').value  = this._playerName ?? '';
+    document.getElementById('woc-game-code').value  = '';
+    document.getElementById('woc-game-status').textContent = '';
+    document.getElementById('woc-game-status').style.color = '#aaa';
+    document.getElementById('woc-game-submit').disabled = false;
+    document.getElementById('woc-game-name').focus();
+    this._gameOverlayOpen = true;
+  }
+
+  _closeGameOverlay() {
+    if (this._gameOverlayEl) this._gameOverlayEl.style.display = 'none';
+    this._gameOverlayOpen = false;
+  }
+
+  async _submitGameCode() {
+    const name   = document.getElementById('woc-game-name').value.trim();
+    const code   = document.getElementById('woc-game-code').value.trim();
+    const status = document.getElementById('woc-game-status');
+    const btn    = document.getElementById('woc-game-submit');
+
+    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
+    if (!code) { status.textContent = 'Please paste your game code.'; status.style.color = '#e07a7a'; return; }
+
+    btn.disabled = true;
+    status.textContent = 'Submitting...';
+    status.style.color = '#aaa';
+
+    try {
+      const res  = await fetch('/api/submit-game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slotKey:     this._roomKey,
+          submittedBy: name,
+          sessionId:   this._colyseusRoom?.sessionId ?? null,
+          code,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
+        status.textContent = msg;
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        status.textContent = '✓ ' + (data.message ?? 'Game submitted! The admin will review it soon.');
+        status.style.color = '#52b788';
+        setTimeout(() => this._closeGameOverlay(), 4000);
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
   }
 }
