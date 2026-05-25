@@ -6,22 +6,28 @@
 // and blocks unauthenticated requests (Private ports) and WebSocket connections.
 //
 // The fix: proxy Colyseus traffic through Vite (port 5173) so everything is
-// same-origin. Two path types need proxying:
-//   1. /matchmake/** — HTTP matchmaking requests (POST, GET)
-//   2. /<processId>/<roomId> — WebSocket room connections
-//      processId and roomId are nanoid(9): 9 alphanumeric chars each.
-//      The regex below matches exactly this pattern and nothing else,
-//      so Vite asset paths like /src/engine/... are unaffected.
+// same-origin. Path types proxied:
+//   1. /matchmake/**   — HTTP matchmaking
+//   2. /admin/**       — Admin panel (served by Express)
+//   3. /api/**         — Public API (portal slots, submissions)
+//   4. /rooms/**       — Room JS files served statically by Express (enables dynamic import)
+//   5. /<pid>/<rid>    — WebSocket room connections (nanoid 9-char IDs)
 
 export default {
   server: {
     proxy: {
-      // Admin panel (served by the Express/Colyseus server)
       '/admin': {
         target: 'http://localhost:2567',
         changeOrigin: true,
       },
-      // HTTP matchmaking
+      '/api': {
+        target: 'http://localhost:2567',
+        changeOrigin: true,
+      },
+      '/rooms': {
+        target: 'http://localhost:2567',
+        changeOrigin: true,
+      },
       '/matchmake': {
         target: 'http://localhost:2567',
         changeOrigin: true,

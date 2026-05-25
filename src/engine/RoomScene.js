@@ -25,11 +25,13 @@ export default class RoomScene extends Phaser.Scene {
   // ── init ─────────────────────────────────────────────────────────────────────
   // Runs before preload. Receives data passed by WorldScene.scene.start().
   init(data) {
-    this._roomModule    = data?.room          ?? null;  // the room's exported module
-    this._returnDoor    = data?.returnDoor    ?? null;  // door key to spawn at on return
-    this._playerName    = data?.playerName    ?? 'You'; // name shown above the player
-    this._colyseusRoom  = data?.colyseusRoom  ?? null;  // shared Colyseus connection
-    this._roomKey       = data?.roomKey       ?? null;  // e.g. 'room1'
+    this._roomModule    = data?.room          ?? null;
+    this._returnDoor    = data?.returnDoor    ?? null;
+    this._playerName    = data?.playerName    ?? 'You';
+    this._colyseusRoom  = data?.colyseusRoom  ?? null;
+    this._roomKey       = data?.roomKey       ?? null;
+    this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
+    this._gameModule    = null;                          // loaded dynamically in create()
     this._roomUpdate    = null;
     this._loaded        = false;
     this._exited        = false;
@@ -171,18 +173,24 @@ export default class RoomScene extends Phaser.Scene {
       this.scene.stop();
     };
 
-    // ── Game zone hint (only if room exports a game + gameZoneX/Y) ───────────
+    // ── Game anchor hint ──────────────────────────────────────────────────────
+    // gameAnchorX/Y = new separate-game system (Phase 7+)
+    // gameZoneX/Y   = legacy in-file game system (Phase 6, still supported)
     this._gameHint = null;
-    if (this._roomModule?.game && this._roomModule?.gameZoneX !== undefined) {
-      const gzX = this._roomModule.gameZoneX;
-      const gzY = this._roomModule.gameZoneY ?? gzX;
-      const gameName = this._roomModule.game.gameName ?? 'Mini-Game';
-      this._gameHint = this.add.text(gzX, gzY - 64,
-        `[E]  Play: ${gameName}`, {
-        fontSize: '13px', fill: '#ffdd88',
+    this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
+    this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
+
+    if (this._gameAnchorX !== undefined) {
+      // Show dim hint immediately; upgrades once game module is confirmed loaded
+      this._gameHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 64,
+        '[E]  ???', {
+        fontSize: '13px', fill: '#888866',
         stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(20).setVisible(false);
     }
+
+    // Load game module: prefer separate file, fall back to inline room.game export
+    this._loadGameModule();
 
     // ── Load room ─────────────────────────────────────────────────────────────
     if (!this._roomModule) {
@@ -212,6 +220,27 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
+  // Loads the game module for this room — either the separate file or inline export.
+  async _loadGameModule() {
+    if (this._gameFileName) {
+      try {
+        // vite-ignore: dynamic path (user-submitted game file)
+        this._gameModule = await import(/* @vite-ignore */ '/rooms/' + this._gameFileName);
+      } catch (e) {
+        console.warn('[RoomScene] Could not load game file:', this._gameFileName, e.message);
+      }
+    } else if (this._roomModule?.game) {
+      // Legacy: game was exported from the room file itself
+      this._gameModule = { game: this._roomModule.game };
+    }
+
+    if (this._gameModule?.game && this._gameHint) {
+      const gameName = this._gameModule.game.gameName ?? 'Mini-Game';
+      this._gameHint.setText(`[E]  Play: ${gameName}`);
+      this._gameHint.setStyle({ fill: '#ffdd88' });
+    }
+  }
+
   // ── update ────────────────────────────────────────────────────────────────────
   update() {
     // ── Player movement ───────────────────────────────────────────────────────
@@ -229,17 +258,15 @@ export default class RoomScene extends Phaser.Scene {
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
-    // ── Game zone proximity ───────────────────────────────────────────────────
-    if (this._gameHint && this._roomModule?.gameZoneX !== undefined) {
+    // ── Game anchor proximity ─────────────────────────────────────────────────
+    if (this._gameHint && this._gameAnchorX !== undefined) {
       const dist = Phaser.Math.Distance.Between(
-        this.player.x, this.player.y,
-        this._roomModule.gameZoneX,
-        this._roomModule.gameZoneY ?? this._roomModule.gameZoneX,
+        this.player.x, this.player.y, this._gameAnchorX, this._gameAnchorY,
       );
       const near = dist < 80;
       this._gameHint.setVisible(near);
-      if (near && Phaser.Input.Keyboard.JustDown(this._keyE)) {
-        this.scene.launch('GameScene', { game: this._roomModule.game });
+      if (near && this._gameModule?.game && Phaser.Input.Keyboard.JustDown(this._keyE)) {
+        this.scene.launch('GameScene', { game: this._gameModule.game });
         this.scene.pause();
       }
     }

@@ -109,33 +109,22 @@ export function onExit(scene) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OPTIONAL: Mini-game (Club Penguin style)
-// If you want a playable mini-game inside your world, export these three things.
-// Players walk to the game zone, see "[E] Play: <gameName>", and press E to open
-// an 800×600 game overlay on top of the world.
+// OPTIONAL: Game anchor — marks where a mini-game can be attached later.
 //
-// gameZoneX / gameZoneY — world coordinates of the game entrance trigger.
-//   Place a visual marker here in onCreate (a glowing spot, arcade machine, etc.)
+// If you want a mini-game accessible from your world, do two things:
 //
-// game — an object with 4 hooks. The game runs in an 800×600 overlay panel.
-//   Coordinates inside the game: x 0–800, y 65–590 (top 64px is the title bar).
-//   Call scene.exitGame() when the player finishes or quits.
+//   1. In onCreate, place a visible interactive object at a spot of your choice
+//      (a glowing screen, arcade machine, mysterious chest — your creative pick).
+//
+//   2. Export its position:
+//        export const gameAnchorX = 800;  // x coordinate of the object
+//        export const gameAnchorY = 600;  // y coordinate of the object
+//
+// The game itself is a SEPARATE file submitted independently to the admin.
+// Until a game is approved, players will see "[E] ???" near the object.
+// Once approved, it becomes "[E] Play: <gameName>" and opens the mini-game overlay.
 //
 // Example:
-//   export const gameZoneX = 800;
-//   export const gameZoneY = 500;
-//   export const game = {
-//     gameName: 'Catch the Stars',
-//     onGameLoad(scene) {},
-//     onGameCreate(scene) {
-//       scene.gameData = {};
-//       // build your game UI here
-//     },
-//     onGameUpdate(scene) {
-//       // per-frame game logic
-//     },
-//     onGameExit(scene) {
-//       scene.gameData = null;
-//     },
-//   };
+//   export const gameAnchorX = 900;
+//   export const gameAnchorY = 700;
 // ─────────────────────────────────────────────────────────────────────────────

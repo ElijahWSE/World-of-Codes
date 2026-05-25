@@ -1,0 +1,22 @@
+{
+  "slot01": {
+    "fileName": "example-room.js",
+    "roomName": "Example Room",
+    "claimedBy": "admin"
+  },
+  "slot02": {
+    "fileName": "underwater-world.js",
+    "roomName": "Underwater World",
+    "claimedBy": "admin"
+  },
+  "slot03": {
+    "fileName": "basket-ball-court.js",
+    "roomName": "Basketball Court",
+    "claimedBy": "admin"
+  },
+  "slot04": {
+    "fileName": "vibrant-city-center.js",
+    "roomName": "Vibrant City Center",
+    "claimedBy": "admin"
+  }
+}

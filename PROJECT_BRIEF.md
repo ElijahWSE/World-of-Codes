@@ -213,36 +213,39 @@ Known fix applied during build:
 
 ---
 
-### PHASE 6 — PLANNED IMPROVEMENTS (not yet started)
+### PHASE 6 — IMPROVEMENTS ✅ COMPLETE
 
-#### 6A — 2-Player Rooms
-Allow players to design rooms that support two players interacting with each other
-(e.g. cooperative puzzles, competitive mini-games, shared triggers).
-- Requires exposing other players' positions/state inside the room's `scene` object
-- Need to decide scope: just the two players in the same room, or synced with Colyseus?
-- Room template contract may need new hooks or a `players` array passed into onCreate/onUpdate
+#### 6A — Multiplayer Rooms + Player Character System ✅ COMPLETE (May 6 2026)
+Players in the same room now see each other in real time.
+- Schema tracks `currentRoom`, `roomX`, `roomY` per player
+- `enterRoom` / `roomMove` / `exitRoom` server message handlers
+- WorldScene uses `scene.launch()` + `scene.sleep()` so Colyseus stays alive inside a room
+- Portal occupancy badge: `● N inside` shown below each portal label
+- Rooms can export `createOtherPlayer()` to customise how other players are rendered
+- Improved Gemini Prompt 1 (safe API list, animation rules, no plain rectangles) integrated into in-game notice board signpost
+- `basket-ball-court.js` added as example room with full multiplayer character rendering
 
-#### 6B — Variable Room Sizes
-Let players choose a room size (small / medium / large) rather than the fixed 800×600 canvas.
-- RoomScene would need to pass width/height into the room module
-- Room template needs a `width` and `height` export (or a `config` export)
-- Camera bounds and exit zone positions would scale accordingly
+#### 6B — Room Size Standardised ✅ COMPLETE (Apr 21 2026)
+Room size standardised to 1600×1200 with camera follow inside rooms.
+- RoomScene sets physics/camera bounds to 1600×1200
+- All Gemini prompts updated with new coordinates
+- Admin panel door entry format updated to portal format
 
-#### 6C — Town Square Redesign (community zone)
-Replace the plain checkerboard floor with a proper community space:
-- Decorative landmarks (fountain, benches, notice boards, trees)
-- Named zones or districts
-- Better visual identity so it feels like a living town, not an empty grid
-- Could include ambient animations (birds, clouds, wind effects)
+#### 6C — Town Square Redesign (Creativity Wonderland) ✅ COMPLETE (Apr 21 2026)
+Full visual overhaul of the town square:
+- Pokemon/RPG-style perspective with sky, mountains, desert ground, river
+- Animated clouds, lightbulb, paper airplane, moon, twinkling stars
+- Cacti and colourful book sculptures with y-based depth sorting
+- Magical animated spinning portals replace wall doorways
+- Walls removed; world bounds used as invisible boundary
 
-#### Pending: Improved Gemini Prompt (do not add to game yet)
-A richer Prompt 1 that produces more visually distinct rooms by:
-- Listing the exact safe Phaser API methods (prevents hallucinated method names like `cubicCurveTo`)
-- Instructing Gemini to avoid plain coloured rectangles as the primary visual style
-- Asking for at least one animated focal point
-- Explicit "Do NOT invent method names" guardrail with fillRect/fillCircle as fallback
-
-Full improved prompt text is saved in memory: `memory/pending_gemini_prompt.md`
+#### Mini-Game System ✅ COMPLETE (Apr 21 2026)
+Club Penguin–style mini-game overlay:
+- `GameScene.js` + `GameLoader.js` — validates game hooks, renders title bar
+- Rooms export `gameZoneX`/`gameZoneY`; players press E on proximity to launch
+- Game runs as overlay on top of RoomScene; world pauses underneath
+- `_template.js` documents optional game exports with full example
+- Notice board page 5: Gemini Prompt B for generating mini-games
 
 ---
 
