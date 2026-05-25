@@ -18,5 +18,10 @@
     "fileName": "vibrant-city-center.js",
     "roomName": "Vibrant City Center",
     "claimedBy": "admin"
+  },
+  "slot16": {
+    "fileName": "elijah.js",
+    "roomName": "hh",
+    "claimedBy": "hh"
   }
 }

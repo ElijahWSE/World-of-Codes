@@ -63,8 +63,10 @@ export default class WorldScene extends Phaser.Scene {
     this._portalObjects = [];
     this._portalCountTexts = new Map();
     this._claimHints    = new Map();
+    this._updateHints   = new Map();
     this._claimOpen     = false;
     this._claimTargetSlot = null;
+    this._claimIsUpdate   = false;
     this._claimOverlayEl  = null;
     this._fetchingPortals = false;
   }
@@ -146,13 +148,15 @@ export default class WorldScene extends Phaser.Scene {
     this._portalObjects = [];
     this._portalCountTexts.clear();
     this._claimHints.clear();
+    this._updateHints.clear();
     this.doorZones = [];
 
     for (const slot of this._activeSlots) {
-      const { objects, countText, claimHint } = this._drawPortal(slot);
+      const { objects, countText, claimHint, updateHint } = this._drawPortal(slot);
       this._portalObjects.push(...objects);
       this._portalCountTexts.set(slot.key, countText);
-      if (claimHint) this._claimHints.set(slot.key, claimHint);
+      if (claimHint)  this._claimHints.set(slot.key, claimHint);
+      if (updateHint) this._updateHints.set(slot.key, updateHint);
       this.doorZones.push({ ...slot, triggered: false });
     }
 
@@ -229,14 +233,19 @@ export default class WorldScene extends Phaser.Scene {
       fontSize: '11px', fill: '#aaffaa', stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(20));
 
-    let claimHint = null;
+    let claimHint  = null;
+    let updateHint = null;
     if (!isActive) {
       claimHint = track(this.add.text(x, y - 96, '[E] Claim Portal', {
         fontSize: '12px', fill: '#ccccaa', stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(20).setVisible(false));
+    } else {
+      updateHint = track(this.add.text(x, y - 96, '[U] Update World', {
+        fontSize: '12px', fill: '#aaddff', stroke: '#000000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(20).setVisible(false));
     }
 
-    return { objects, countText, claimHint };
+    return { objects, countText, claimHint, updateHint };
   }
 
   // ── Background ────────────────────────────────────────────────────────────
@@ -608,8 +617,15 @@ export default class WorldScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, door.x, door.y);
 
       if (door.roomModule) {
-        // Active portal — enter on close approach
+        // Active portal — enter on close approach, update hint at medium range
+        const nearUpdate = dist < CLAIM_RADIUS && dist >= PORTAL_RADIUS;
+        const hint = this._updateHints.get(door.key);
+        if (hint) hint.setVisible(nearUpdate);
+        if (nearUpdate && Phaser.Input.Keyboard.JustDown(this._keyU)) {
+          this._openClaimOverlay(door.key, true);
+        }
         if (dist < PORTAL_RADIUS && !door.triggered) {
+          if (hint) hint.setVisible(false);
           door.triggered = true;
           if (this.colyseusRoom) this.colyseusRoom.send('enterRoom', { key: door.key });
           this.scene.launch('RoomScene', {
@@ -630,7 +646,7 @@ export default class WorldScene extends Phaser.Scene {
         const near = dist < CLAIM_RADIUS;
         if (hint) hint.setVisible(near);
         if (near && Phaser.Input.Keyboard.JustDown(this._keyE)) {
-          this._openClaimOverlay(door.key);
+          this._openClaimOverlay(door.key, false);
         }
       }
     }
@@ -646,8 +662,8 @@ export default class WorldScene extends Phaser.Scene {
     ].join(';');
     el.innerHTML = `
       <div style="background:#16213e;border:1px solid #2a4a7f;border-radius:12px;padding:2rem;width:540px;max-width:95vw;font-family:system-ui,sans-serif">
-        <h2 style="color:#f4a261;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
-        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
+        <h2 id="woc-claim-title" style="color:#f4a261;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
+        <p id="woc-claim-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
         <label style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name (becomes the portal label — max 20 chars)</span>
           <input id="woc-claim-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
@@ -670,9 +686,19 @@ export default class WorldScene extends Phaser.Scene {
     document.getElementById('woc-claim-submit').onclick = () => this._submitClaim();
   }
 
-  _openClaimOverlay(slotKey) {
+  _openClaimOverlay(slotKey, isUpdate = false) {
     this._claimTargetSlot = slotKey;
+    this._claimIsUpdate   = isUpdate;
     if (!this._claimOverlayEl) this._createClaimOverlay();
+    // Adapt title and description for update vs. new claim
+    const title = document.getElementById('woc-claim-title');
+    const desc  = document.getElementById('woc-claim-desc');
+    const btn   = document.getElementById('woc-claim-submit');
+    if (title) title.textContent = isUpdate ? 'Submit World Update' : 'Claim Portal';
+    if (desc)  desc.textContent  = isUpdate
+      ? 'Paste your updated room code below. The admin will review it and replace the current version when approved.'
+      : 'Enter your name and paste your Gemini-generated world code. The admin will review and approve it.';
+    if (btn) btn.textContent = isUpdate ? 'Submit Update' : 'Submit World';
     this._claimOverlayEl.style.display = 'flex';
     document.getElementById('woc-claim-name').value  = '';
     document.getElementById('woc-claim-code').value  = '';
@@ -687,6 +713,7 @@ export default class WorldScene extends Phaser.Scene {
     if (this._claimOverlayEl) this._claimOverlayEl.style.display = 'none';
     this._claimOpen = false;
     this._claimTargetSlot = null;
+    this._claimIsUpdate   = false;
   }
 
   _destroyClaimOverlay() {
@@ -724,7 +751,10 @@ export default class WorldScene extends Phaser.Scene {
         status.style.color = '#e07a7a';
         btn.disabled = false;
       } else {
-        status.textContent = '✓ Submitted! The admin will review your world. You\'ll be notified in-game when it\'s approved.';
+        const successMsg = this._claimIsUpdate
+          ? '✓ Update submitted! You\'ll be notified in-game when the admin approves your update.'
+          : '✓ Submitted! The admin will review your world. You\'ll be notified in-game when it\'s approved.';
+        status.textContent = successMsg;
         status.style.color = '#52b788';
         setTimeout(() => this._closeClaimOverlay(), 4000);
       }
@@ -779,6 +809,7 @@ export default class WorldScene extends Phaser.Scene {
     this._signOpen = false; this._signPage = 0;
 
     this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this._keyU = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U);
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._signOpen) this._closeSignpost();
       else if (this._claimOpen) this._closeClaimOverlay();

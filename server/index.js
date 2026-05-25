@@ -254,11 +254,10 @@ const gameServer = new Server({
         return res.status(400).json({ error: 'Player name required' });
       if (!code?.trim())
         return res.status(400).json({ error: 'Room code required' });
-      if (slotAssignments.has(slotKey))
-        return res.status(400).json({ error: 'That portal is already taken' });
+      const isUpdate = slotAssignments.has(slotKey);
       for (const sub of pendingSubmissions.values()) {
         if (sub.slotKey === slotKey)
-          return res.status(400).json({ error: 'That portal already has a pending submission' });
+          return res.status(400).json({ error: 'That portal already has a pending submission. Please wait for the current one to be reviewed.' });
       }
       const errors = validateRoomCode(code);
       if (errors.length > 0)
@@ -266,10 +265,13 @@ const gameServer = new Server({
       const id = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       pendingSubmissions.set(id, {
         id, slotKey, playerName: playerName.trim(),
-        sessionId: sessionId ?? null, code, submittedAt: Date.now(),
+        sessionId: sessionId ?? null, code, submittedAt: Date.now(), isUpdate,
       });
-      console.log(`[Submit] Room from "${playerName}" for slot ${slotKey}`);
-      res.json({ ok: true, message: 'Submitted! The admin will review your world soon.' });
+      console.log(`[Submit] Room ${isUpdate ? 'update' : 'claim'} from "${playerName}" for slot ${slotKey}`);
+      const message = isUpdate
+        ? 'Update submitted! The admin will review your updated world soon.'
+        : 'Submitted! The admin will review your world soon.';
+      res.json({ ok: true, message });
     });
 
     // Admin submits game code for a slot (via admin panel)
@@ -330,15 +332,19 @@ const gameServer = new Server({
       const sub = pendingSubmissions.get(submissionId);
       if (!sub) return res.status(404).json({ error: 'Submission not found' });
       try {
-        const fileName = toKebabCase(sub.playerName) + '.js';
+        // For updates, preserve the existing file name so the module URL stays stable.
+        const existing = sub.isUpdate ? slotAssignments.get(sub.slotKey) : null;
+        const fileName = existing?.fileName ?? (toKebabCase(sub.playerName) + '.js');
         writeFileSync(join(ROOMS_DIR, fileName), sub.code, 'utf8');
         slotAssignments.set(sub.slotKey, { fileName, roomName: sub.playerName, claimedBy: sub.playerName });
         persistSlots();
         pendingSubmissions.delete(submissionId);
-        notifyPlayer(sub.sessionId, 'approved',
-          `Your world "${sub.playerName}" was approved! Find your portal in the town square.`);
+        const notifyMsg = sub.isUpdate
+          ? `Your updated world "${sub.playerName}" was approved! The portal has been refreshed.`
+          : `Your world "${sub.playerName}" was approved! Find your portal in the town square.`;
+        notifyPlayer(sub.sessionId, 'approved', notifyMsg);
         broadcastSlotsUpdated();
-        console.log(`[Admin] Approved room "${sub.playerName}" → ${sub.slotKey} (${fileName})`);
+        console.log(`[Admin] Approved room ${sub.isUpdate ? 'update' : 'claim'} "${sub.playerName}" → ${sub.slotKey} (${fileName})`);
         res.json({ ok: true, fileName });
       } catch (e) {
         res.status(500).json({ error: e.message });
