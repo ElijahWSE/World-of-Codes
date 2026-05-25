@@ -1014,48 +1014,72 @@ export default class WorldScene extends Phaser.Scene {
       '--- END OF TEMPLATE ---';
 
     const PROMPT_GAME =
-      'I want to create a mini-game for my world.\n' +
+      'MY WORLD THEME: [YOUR WORLD THEME — e.g. "Crystal Cave", "Underwater World"]\n' +
+      'MY GAME IDEA:   [YOUR GAME IDEA — e.g. "catch falling gems in a basket",\n' +
+      '                 "memory card matching", "dodge scrolling obstacles"]\n' +
       '\n' +
-      'MY WORLD THEME: [YOUR WORLD THEME HERE — e.g. "Crystal Cave", "Underwater World"]\n' +
+      '════════════════════════════════════════════════════════════\n' +
+      'TASK: Generate a mini-game file for a custom game engine.\n' +
+      'The engine calls my functions — I do NOT create a Phaser.Game\n' +
+      'or a Phaser.Scene class. I only fill in a plain JS object.\n' +
+      '════════════════════════════════════════════════════════════\n' +
       '\n' +
-      'MY GAME IDEA: [DESCRIBE YOUR GAME HERE — e.g. "a ball-catching game where I move\n' +
-      'a basket left and right to catch falling gems", "a memory card matching game with\n' +
-      'cave crystals", "dodge the obstacles as they scroll toward you"]\n' +
+      'HERE IS A COMPLETE WORKING EXAMPLE — match this structure exactly:\n' +
       '\n' +
-      'The mini-game runs as an 800×600 overlay panel on top of my world (Club Penguin\n' +
-      'style). Players press [E] near an interactive object in my world to open it.\n' +
-      'The game should match or complement my world theme.\n' +
+      '─────────────────────────────────────────────────────────────\n' +
+      "export const game = {\n" +
+      "  gameName: 'Click the Star',\n" +
       '\n' +
-      'First, show me a playable preview of the game so I can test it and ask for changes.\n' +
-      'Then output the final code using EXACTLY this structure — nothing else:\n' +
+      '  onGameLoad(scene) {\n' +
+      '    // load images/audio here (leave empty if not needed)\n' +
+      '  },\n' +
       '\n' +
-      'export const game = {\n' +
-      "  gameName: 'Your Game Name',   // ← short name shown in the title bar\n" +
-      '  onGameLoad(scene) {},\n' +
       '  onGameCreate(scene) {\n' +
-      '    scene.gameData = {};\n' +
-      '    // Build the game UI here.\n' +
-      '    // Coordinate space: x 0–800, y 65–590 (top 64px is the title bar).\n' +
-      '    // Call scene.exitGame() when the game ends (win/lose/quit).\n' +
+      '    scene.gameData = { score: 0 };\n' +
+      '\n' +
+      '    scene.gameData.scoreText = scene.add.text(400, 90, "Score: 0", {\n' +
+      "      fontSize: '22px', fill: '#ffffff',\n" +
+      '    }).setOrigin(0.5);\n' +
+      '\n' +
+      '    const target = scene.add.circle(400, 320, 32, 0xffdd00).setInteractive();\n' +
+      '    scene.gameData.target = target;\n' +
+      '\n' +
+      '    target.on("pointerdown", () => {\n' +
+      '      scene.gameData.score += 1;\n' +
+      '      scene.gameData.scoreText.setText("Score: " + scene.gameData.score);\n' +
+      '      target.setPosition(\n' +
+      '        Phaser.Math.Between(60, 740),\n' +
+      '        Phaser.Math.Between(100, 560),\n' +
+      '      );\n' +
+      '      if (scene.gameData.score >= 10) scene.exitGame();\n' +
+      '    });\n' +
       '  },\n' +
+      '\n' +
       '  onGameUpdate(scene) {\n' +
-      '    // Per-frame game logic here\n' +
+      '    // runs every frame — put timers, movement, collision here\n' +
       '  },\n' +
+      '\n' +
       '  onGameExit(scene) {\n' +
-      '    scene.gameData = null;\n' +
+      '    scene.gameData = null; // always clean up\n' +
       '  },\n' +
       '};\n' +
+      '─────────────────────────────────────────────────────────────\n' +
       '\n' +
-      'STRICT RULES:\n' +
-      '  ✅ Export only the game object — nothing else\n' +
-      '  ✅ game must have all 4 methods: onGameLoad, onGameCreate, onGameUpdate, onGameExit\n' +
-      '  ✅ Use scene.gameData to store all game state\n' +
-      '  ✅ Call scene.exitGame() when the game is finished\n' +
-      '  ✅ Keep all coordinates within x:0–800, y:65–590\n' +
-      '  ❌ Do NOT use import, require(), fetch(), document, or window\n' +
-      '  ❌ Do NOT include the room code — this file is the game only\n' +
+      'COORDINATE SPACE: x 0–800, y 65–590  (top 64 px is the title bar — do not draw there)\n' +
       '\n' +
-      'Output ONLY the complete game file — no explanation.';
+      'RULES — the engine will REJECT the file if any of these are broken:\n' +
+      '  ✅ The file must contain ONLY "export const game = { ... };" — nothing before or after\n' +
+      '  ✅ All four methods must exist: onGameLoad, onGameCreate, onGameUpdate, onGameExit\n' +
+      '  ✅ Store ALL game state in scene.gameData (set it in onGameCreate, null it in onGameExit)\n' +
+      '  ✅ Call scene.exitGame() to close the game (on win, lose, or quit)\n' +
+      '  ❌ NO import or require() statements — not even "import Phaser from phaser"\n' +
+      '  ❌ NO new Phaser.Game() or new Phaser.Scene() — the engine already has those\n' +
+      '  ❌ NO class declarations\n' +
+      '  ❌ NO export default — only "export const game"\n' +
+      '  ❌ NO fetch(), document, window, or localStorage\n' +
+      '\n' +
+      'First show me a playable HTML preview of the game so I can test it and request changes.\n' +
+      'Once I am happy, output the final code as a single code block — ONLY the export const game = { ... }; block, nothing else.';
 
     return [
       {
@@ -1165,9 +1189,9 @@ export default class WorldScene extends Phaser.Scene {
         body:
           'Want a playable mini-game inside your world? (Club Penguin style!)\n' +
           '\n' +
-          'BEFORE YOU COPY THE PROMPT, decide two things:\n' +
+          'BEFORE YOU COPY, decide two things:\n' +
           '  1. Your game idea — what will players actually do?\n' +
-          '     e.g. "catch falling stars", "memory card matching",\n' +
+          '     e.g. "catch falling stars", "memory card flip",\n' +
           '          "dodge obstacles scrolling toward you"\n' +
           '  2. Your world theme (same as your room)\n' +
           '     e.g. "Crystal Cave", "Underwater World"\n' +
@@ -1175,16 +1199,16 @@ export default class WorldScene extends Phaser.Scene {
           'STEPS:\n' +
           '  1. Click "Copy Prompt" below\n' +
           '  2. Paste into a NEW Gemini conversation\n' +
-          '  3. Fill in the two placeholders at the TOP of the prompt:\n' +
-          '       MY WORLD THEME: [replace this]\n' +
-          '       MY GAME IDEA:   [replace this with your idea]\n' +
-          '  4. Gemini shows a preview — test and tweak it\n' +
-          '  5. Copy the final game code and send to the admin\n' +
+          '  3. Fill in MY WORLD THEME and MY GAME IDEA at the very top\n' +
+          '  4. Gemini shows a preview — test it, ask for changes\n' +
+          '  5. When happy: copy the final code block Gemini outputs\n' +
+          '  6. Enter your room → walk to your game object → press [G]\n' +
+          '     Paste the code and submit — admin will activate it!\n' +
           '\n' +
           'HOW IT WORKS IN-GAME:\n' +
-          '  - Your room must have a game anchor object (gameAnchorX/Y)\n' +
-          '  - Players walk near it → see "[E] ???"\n' +
-          '  - Once approved → "[E] Play: <your game name>"',
+          '  - Your room file must export gameAnchorX and gameAnchorY\n' +
+          '  - Players walk near that spot → see "[E] ???"\n' +
+          '  - Once your game is approved → "[E] Play: <game name>"',
       },
     ];
   }
