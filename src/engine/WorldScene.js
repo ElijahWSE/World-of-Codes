@@ -687,6 +687,7 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   _openClaimOverlay(slotKey, isUpdate = false) {
+    this.input.keyboard.disableGlobalCapture();
     this._claimTargetSlot = slotKey;
     this._claimIsUpdate   = isUpdate;
     if (!this._claimOverlayEl) this._createClaimOverlay();
@@ -711,6 +712,7 @@ export default class WorldScene extends Phaser.Scene {
 
   _closeClaimOverlay() {
     if (this._claimOverlayEl) this._claimOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
     this._claimOpen = false;
     this._claimTargetSlot = null;
     this._claimIsUpdate   = false;

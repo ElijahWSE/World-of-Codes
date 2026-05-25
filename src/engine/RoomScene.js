@@ -356,6 +356,7 @@ export default class RoomScene extends Phaser.Scene {
   }
 
   _openGameOverlay() {
+    this.input.keyboard.disableGlobalCapture();
     if (!this._gameOverlayEl) this._createGameOverlay();
     this._gameOverlayEl.style.display = 'flex';
     document.getElementById('woc-game-name').value  = this._playerName ?? '';
@@ -369,6 +370,7 @@ export default class RoomScene extends Phaser.Scene {
 
   _closeGameOverlay() {
     if (this._gameOverlayEl) this._gameOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
     this._gameOverlayOpen = false;
   }
 
