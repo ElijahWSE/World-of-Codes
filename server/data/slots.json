@@ -1,9 +1,4 @@
 {
-  "slot01": {
-    "fileName": "example-room.js",
-    "roomName": "Example Room",
-    "claimedBy": "admin"
-  },
   "slot02": {
     "fileName": "underwater-world.js",
     "roomName": "Underwater World",
@@ -22,6 +17,7 @@
   "slot16": {
     "fileName": "elijah.js",
     "roomName": "hh",
-    "claimedBy": "hh"
+    "claimedBy": "hh",
+    "gameFileName": "game-slot16.js"
   }
 }
