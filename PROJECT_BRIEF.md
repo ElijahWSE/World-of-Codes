@@ -249,6 +249,90 @@ Club Penguin–style mini-game overlay:
 
 ---
 
+---
+
+### PHASE 7 — DYNAMIC PORTALS, IN-GAME SUBMISSION, ADMIN PENDING QUEUE ✅ COMPLETE
+
+- Dynamic portal system: slots stored in `server/data/slots.json`, fetched at runtime via `/api/portal-slots`, room modules loaded with dynamic `import()` — no Vite restart needed after approving a room
+- In-game room submission: players press E near unclaimed portal, paste Gemini-generated code directly in-game
+- In-game game submission: players press G inside their approved room to submit a mini-game
+- Admin pending queue: separate tabs for pending rooms and pending games, inline code validation, approve/reject with reason
+- Players can submit updated versions of their approved world
+- All 9 student rooms added: aleshaaa, danielle-world, emmanuel-tan, kristabel, kristabelly, ming-jian, nether, sufina, yi-jasmeen
+
+---
+
+### PHASE 8 — GOOGLE AUTH + FIREBASE (PLANNED)
+
+Goal: Replace random player names with persistent Google identity. Auto-assign portal slots on first login.
+
+New files to create:
+- `src/auth/firebase.js` — Firebase app initialisation (env vars: `VITE_FIREBASE_*`)
+- `src/auth/googleAuth.js` — `signInWithGoogle()`, `signOut()`, `onAuthStateChanged()`
+- `src/auth/session.js` — module-level singleton `{ uid, displayName, photoURL, slotKey, idToken }`
+- `src/engine/LoginScene.js` — first Phaser scene, Google Sign-In button, routes to CharacterScene or WorldScene
+
+Files to modify:
+- `server/index.js` — Firebase Admin SDK, `POST /api/auth/verify` (verify token + auto-assign slot), `GET /api/character/:uid`
+- `src/shared/schema.js` — add `uid` field to `PlayerState`
+- `src/engine/main.js` — register `LoginScene` as first scene
+- `src/engine/WorldScene.js` — read identity from `session.js`, not random name
+- `server/data/slots.json` — gains `uid` field per entry
+
+Firestore model: `users/{uid}` → `{ displayName, email, photoURL, slotKey, characterConfig }`
+
+New dependencies: `firebase` (client), `firebase-admin` (server)
+
+---
+
+### PHASE 9 — CHARACTER CREATOR (PLANNED)
+
+Goal: New players create a custom character via Gemini prompt before entering the world. Character persists in Firestore and renders for all other players.
+
+New files to create:
+- `src/engine/CharacterScene.js` — forced lobby for new players; Gemini prompt + JSON paste + live preview + save
+- `src/engine/CharacterRenderer.js` — pure function `drawCharacter(graphics, config, x, y)` shared by all scenes
+
+Files to modify:
+- `server/index.js` — `POST /api/auth/save-character` (write characterConfig to Firestore)
+- `src/engine/WorldScene.js` — use `drawCharacter()` for local + other players; fetch other players' configs via `/api/character/:uid` and cache in a Map
+- `src/engine/RoomScene.js` — same pattern; falls back to `createOtherPlayer()` if room exports it
+
+Character config (simple JSON, upgradable to free-form JS later):
+```json
+{
+  "bodyColor": "#4ecdc4", "headColor": "#ffcc00", "eyeColor": "#222222",
+  "bodyShape": "round",  "accessory": "hat",  "accessoryColor": "#ff6b6b", "scale": 1.0
+}
+```
+
+---
+
+### PHASE 10 — DEPLOYMENT (PLANNED)
+
+Goal: Deploy frontend to Firebase Hosting (`yourapp.web.app`) and Colyseus to Railway.
+
+Architecture:
+- Firebase Hosting → Vite-built frontend (static)
+- Railway → Colyseus Node server (persistent WebSocket)
+- Firebase Auth + Firestore → already cloud-hosted
+
+New files: `firebase.json`, `.firebaserc`, `railway.json`, `.env.local` (git-ignored), `.env.production`
+
+Key changes:
+- `vite.config.js` — proxy only active in dev; production reads `VITE_COLYSEUS_URL`
+- `server/index.js` — CORS for Firebase Hosting domain; service account from env var
+- `package.json` — add `"deploy": "vite build && firebase deploy --only hosting"` script
+
+Manual one-time steps (owner):
+1. Create Firebase project, enable Google Auth, create Firestore DB
+2. Download service account JSON → set as Railway env var `FIREBASE_SERVICE_ACCOUNT`
+3. `firebase login && firebase init hosting`
+4. Deploy Colyseus to Railway via GitHub integration
+5. Set `VITE_COLYSEUS_URL` in Railway env vars pointing to Railway URL
+
+---
+
 ## General Rules (apply to all phases)
 
 - Never block on missing art — use colored rectangles and text for everything visual
