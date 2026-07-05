@@ -6,81 +6,41 @@
   <title>World of Codes — Admin</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      padding: 2rem;
-      max-width: 900px;
-      margin: 0 auto;
-    }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; max-width: 1000px; margin: 0 auto; }
     h1 { color: #f4a261; margin-bottom: 0.25rem; }
-    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 2rem; }
+    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
     h2 { color: #f4a261; margin-bottom: 1rem; font-size: 1rem; letter-spacing: 0.05em; text-transform: uppercase; }
     h3 { font-size: 0.9rem; margin-bottom: 0.75rem; color: #ccc; }
-    section {
-      background: #16213e;
-      border: 1px solid #0f3460;
-      border-radius: 8px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
+    section { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
     label { display: block; margin-bottom: 1rem; font-size: 0.875rem; color: #aaa; }
     label span { display: block; margin-bottom: 0.35rem; }
     input[type=text], input[type=password], select, textarea {
-      display: block;
-      width: 100%;
-      padding: 0.5rem 0.75rem;
-      background: #0f3460;
-      border: 1px solid #2a4a7f;
-      border-radius: 4px;
-      color: #e0e0e0;
-      font-size: 0.9rem;
-      font-family: inherit;
+      display: block; width: 100%; padding: 0.5rem 0.75rem;
+      background: #0f3460; border: 1px solid #2a4a7f; border-radius: 4px;
+      color: #e0e0e0; font-size: 0.9rem; font-family: inherit;
     }
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: #f4a261;
-    }
-    textarea {
-      font-family: 'Courier New', monospace;
-      font-size: 0.8rem;
-      resize: vertical;
-      min-height: 300px;
-    }
-    .btn {
-      display: inline-block;
-      padding: 0.5rem 1.25rem;
-      background: #f4a261;
-      color: #1a1a2e;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 0.875rem;
-    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #f4a261; }
+    textarea { font-family: 'Courier New', monospace; font-size: 0.8rem; resize: vertical; min-height: 260px; }
+    .btn { display: inline-block; padding: 0.5rem 1.25rem; background: #f4a261; color: #1a1a2e; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 0.875rem; }
     .btn:hover { background: #e8935a; }
     .btn-secondary { background: #2a4a7f; color: #e0e0e0; }
     .btn-secondary:hover { background: #3a5a9f; }
     .btn-danger { background: #e63946; color: #fff; }
     .btn-danger:hover { background: #c1121f; }
+    .btn-success { background: #2d6a4f; color: #fff; }
+    .btn-success:hover { background: #3a8a6a; }
     .btn-small { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
     .btn-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
     .row { display: flex; gap: 1rem; }
     .row label { flex: 1; }
-    .door-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-    .door-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 1rem; }
-    .door-card h3 { font-size: 0.8rem; color: #f4a261; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
-    .door-card .room-name { font-size: 0.95rem; margin-bottom: 0.25rem; color: #e0e0e0; }
-    .door-card .room-file { font-size: 0.75rem; color: #888; margin-bottom: 0.75rem; font-family: monospace; }
-    .door-card .empty { color: #555; font-style: italic; font-size: 0.9rem; }
-    .status {
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      display: none;
-    }
+    .slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+    .slot-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 0.75rem; }
+    .slot-card.active { border-color: #f4a261; }
+    .slot-card h3 { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
+    .slot-card .room-name { font-size: 0.9rem; margin-bottom: 0.2rem; color: #e0e0e0; }
+    .slot-card .room-file { font-size: 0.7rem; color: #666; margin-bottom: 0.6rem; font-family: monospace; }
+    .slot-card .empty { color: #444; font-style: italic; font-size: 0.85rem; }
+    .status { margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.875rem; display: none; }
     .status.ok  { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; display: block; }
     .status.err { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; display: block; }
     .password-row { display: flex; align-items: flex-end; gap: 1rem; }
@@ -88,52 +48,46 @@
     #password-saved { color: #52b788; font-size: 0.85rem; }
     .note { font-size: 0.8rem; color: #666; margin-top: 0.75rem; }
 
-    /* Validation results */
-    #validation-box {
-      margin-top: 1.25rem;
-      display: none;
-    }
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid #0f3460; }
+    .tab-btn { padding: 0.6rem 1.25rem; background: transparent; border: none; color: #888; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s; }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active { color: #f4a261; border-bottom-color: #f4a261; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Pending cards */
+    .pending-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    .pending-card .meta { font-size: 0.78rem; color: #888; margin-bottom: 0.5rem; }
+    .pending-card .preview { font-family: monospace; font-size: 0.75rem; color: #aaa; background: #070e1f; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 100px; overflow: hidden; }
+    .pending-card .full-code { font-family: monospace; font-size: 0.75rem; color: #ccc; background: #070e1f; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 300px; overflow-y: auto; display: none; }
+    .reject-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; }
+    .reject-input { flex: 1; min-width: 180px; padding: 0.35rem 0.6rem; }
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.72rem; font-weight: 700; margin-left: 0.5rem; }
+    .badge-slot { background: #1a3060; color: #8ab4f8; }
+    .empty-state { color: #555; font-style: italic; font-size: 0.9rem; padding: 1rem 0; }
+
+    /* Validation */
+    #validation-box { margin-top: 1.25rem; display: none; }
     .check-list { list-style: none; margin-bottom: 1rem; }
-    .check-list li {
-      font-size: 0.875rem;
-      padding: 0.35rem 0;
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-    }
+    .check-list li { font-size: 0.875rem; padding: 0.35rem 0; display: flex; align-items: flex-start; gap: 0.5rem; }
     .check-list li .icon { flex-shrink: 0; font-size: 1rem; }
     .check-list li.pass { color: #52b788; }
     .check-list li.fail { color: #e07a7a; }
-    .validation-banner {
-      padding: 0.6rem 1rem;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      font-weight: 600;
-      margin-bottom: 1rem;
-    }
+    .validation-banner { padding: 0.6rem 1rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; margin-bottom: 1rem; }
     .validation-banner.all-pass { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; }
     .validation-banner.has-fail { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; }
-
-    /* Gemini fix prompt */
-    #gemini-prompt-box {
-      margin-top: 1.25rem;
-      background: #0f2040;
-      border: 1px solid #f4a26155;
-      border-radius: 6px;
-      padding: 1.25rem;
-      display: none;
-    }
+    #gemini-prompt-box { margin-top: 1.25rem; background: #0f2040; border: 1px solid #f4a26155; border-radius: 6px; padding: 1.25rem; display: none; }
     #gemini-prompt-box h3 { color: #f4a261; margin-bottom: 0.4rem; }
     #gemini-prompt-box p { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
-    #gemini-prompt {
-      min-height: 140px;
-      font-size: 0.78rem;
-      background: #070e1f;
-      border-color: #1a3060;
-      color: #ccc;
-      margin-bottom: 0.75rem;
-    }
+    #gemini-prompt { min-height: 140px; font-size: 0.78rem; background: #070e1f; border-color: #1a3060; color: #ccc; margin-bottom: 0.75rem; }
     #copy-feedback { font-size: 0.8rem; color: #52b788; margin-left: 0.75rem; display: none; }
+
+    /* Inline validation inside pending cards */
+    .inline-validation { margin-top: 0.75rem; display: none; }
+    .inline-validation .validation-banner { margin-bottom: 0.5rem; }
+    .inline-validation .check-list li { font-size: 0.82rem; padding: 0.2rem 0; }
+    .inline-validation .check-list { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -154,348 +108,579 @@
   </div>
 </section>
 
-<!-- Current Rooms -->
-<section>
-  <h2>Current Rooms</h2>
-  <div class="door-grid" id="door-grid">
-    <p style="color:#888;font-size:0.9rem">Loading...</p>
-  </div>
-  <button class="btn btn-secondary btn-small" style="margin-top:1rem" onclick="loadRooms()">Refresh</button>
-</section>
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
+  <button class="tab-btn" onclick="switchTab('pending-rooms')">Pending Rooms <span id="pending-rooms-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
+  <button class="tab-btn" onclick="switchTab('pending-games')">Pending Games <span id="pending-games-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
+</div>
 
-<!-- Approve Room -->
-<section>
-  <h2>Approve New Room</h2>
-  <div class="row">
+<!-- ── Tab: Room Management ─────────────────────────────────────────────────── -->
+<div id="tab-rooms" class="tab-pane active">
+
+  <!-- Current Slots -->
+  <section>
+    <h2>All 20 Portal Slots</h2>
+    <div class="slot-grid" id="slot-grid">
+      <p style="color:#888;font-size:0.9rem">Loading...</p>
+    </div>
+    <button class="btn btn-secondary btn-small" style="margin-top:1rem" onclick="loadSlots()">Refresh</button>
+  </section>
+
+  <!-- Direct Assign (admin bypass) -->
+  <section>
+    <h2>Assign Room Directly</h2>
+    <p class="note" style="margin-bottom:1rem;color:#aaa">Use this to add a room yourself without going through the in-game submission flow.</p>
+    <div class="row">
+      <label>
+        <span>Room / Portal Name</span>
+        <input type="text" id="room-name" placeholder="e.g. Crystal Cave">
+      </label>
+      <label>
+        <span>Portal Slot</span>
+        <select id="slot-select">
+          <option value="">— choose a slot —</option>
+        </select>
+      </label>
+    </div>
     <label>
-      <span>Room Name</span>
-      <input type="text" id="room-name" placeholder="e.g. Crystal Cave">
+      <span>Room Code (paste the full JS file)</span>
+      <textarea id="room-code" placeholder="// Paste room code here..."></textarea>
     </label>
-    <label>
-      <span>Assign to Door</span>
-      <select id="door-select">
-        <option value="north">North</option>
-        <option value="east">East</option>
-        <option value="south">South</option>
-        <option value="west">West</option>
-      </select>
-    </label>
-  </div>
-  <label>
-    <span>Room Code (paste the full JS file from the player)</span>
-    <textarea id="room-code" placeholder="// Paste room code here..."></textarea>
-  </label>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="validateOnly()">Validate Code</button>
+      <button class="btn" onclick="assignRoom()">Assign Room</button>
+    </div>
 
-  <div class="btn-row">
-    <button class="btn btn-secondary" onclick="validateOnly()">Validate Code</button>
-    <button class="btn" onclick="approveRoom()">Approve Room</button>
-  </div>
-  <p class="note">After approving, restart the server with <code>npm start</code> for the room to appear in-game.</p>
-
-  <!-- Validation results -->
-  <div id="validation-box">
-    <div id="validation-banner" class="validation-banner"></div>
-    <ul class="check-list" id="check-list"></ul>
-
-    <!-- Gemini fix prompt — only shown when there are failures -->
-    <div id="gemini-prompt-box">
-      <h3>Fix Prompt for Gemini</h3>
-      <p>Copy this and paste it back into the same Gemini conversation to get a corrected version of the code.</p>
-      <textarea id="gemini-prompt" readonly></textarea>
-      <div style="display:flex;align-items:center">
-        <button class="btn btn-secondary btn-small" onclick="copyGeminiPrompt()">Copy Prompt</button>
-        <span id="copy-feedback">Copied!</span>
+    <div id="validation-box">
+      <div id="validation-banner" class="validation-banner"></div>
+      <ul class="check-list" id="check-list"></ul>
+      <div id="gemini-prompt-box">
+        <h3>Fix Prompt for Gemini</h3>
+        <p>Copy this and paste it back into the same Gemini conversation to get a corrected version.</p>
+        <textarea id="gemini-prompt" readonly></textarea>
+        <div style="display:flex;align-items:center">
+          <button class="btn btn-secondary btn-small" onclick="copyGeminiPrompt()">Copy Prompt</button>
+          <span id="copy-feedback">Copied!</span>
+        </div>
       </div>
     </div>
-  </div>
+    <div class="status" id="assign-status"></div>
+  </section>
+</div>
 
-  <div class="status" id="approve-status"></div>
-</section>
+<!-- ── Tab: Pending Rooms ───────────────────────────────────────────────────── -->
+<div id="tab-pending-rooms" class="tab-pane">
+  <section>
+    <h2>Pending Room Submissions</h2>
+    <p class="note" style="margin-bottom:1rem;color:#aaa">These were submitted by players in-game. Review the code, then approve or reject.</p>
+    <button class="btn btn-secondary btn-small" style="margin-bottom:1rem" onclick="loadPendingRooms()">Refresh</button>
+    <div id="pending-rooms-list"><p class="empty-state">Loading...</p></div>
+    <div class="status" id="pending-room-status"></div>
+  </section>
+</div>
+
+<!-- ── Tab: Pending Games ───────────────────────────────────────────────────── -->
+<div id="tab-pending-games" class="tab-pane">
+  <section>
+    <h2>Pending Game Submissions</h2>
+    <p class="note" style="margin-bottom:1rem;color:#aaa">Mini-game files submitted for approved rooms. Review and approve to activate "[E] Play" in-game.</p>
+
+    <!-- Submit a game for a slot -->
+    <details style="margin-bottom:1.5rem">
+      <summary style="cursor:pointer;color:#f4a261;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem">+ Submit a new game for a slot</summary>
+      <div style="margin-top:0.75rem">
+        <div class="row">
+          <label>
+            <span>Portal Slot</span>
+            <select id="game-slot-select"><option value="">— choose —</option></select>
+          </label>
+        </div>
+        <label>
+          <span>Game Code</span>
+          <textarea id="game-code" placeholder="// Paste game code here..."></textarea>
+        </label>
+        <div class="btn-row">
+          <button class="btn" onclick="submitGame()">Submit Game</button>
+        </div>
+        <div class="status" id="game-submit-status"></div>
+      </div>
+    </details>
+
+    <button class="btn btn-secondary btn-small" style="margin-bottom:1rem" onclick="loadPendingGames()">Refresh</button>
+    <div id="pending-games-list"><p class="empty-state">Loading...</p></div>
+    <div class="status" id="pending-game-status"></div>
+  </section>
+</div>
 
 <script>
-  // ── Password ──────────────────────────────────────────────────────────────
-  function getPassword() {
-    return sessionStorage.getItem('woc_admin_pw') || '';
-  }
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function getPassword() { return sessionStorage.getItem('woc_admin_pw') || ''; }
 
-  function savePassword() {
-    const pw = document.getElementById('password').value;
-    if (!pw) return;
-    sessionStorage.setItem('woc_admin_pw', pw);
-    document.getElementById('password').value = '';
-    const el = document.getElementById('password-saved');
-    el.style.display = 'inline';
-    setTimeout(() => el.style.display = 'none', 3000);
-  }
+function savePassword() {
+  const pw = document.getElementById('password').value;
+  if (!pw) return;
+  sessionStorage.setItem('woc_admin_pw', pw);
+  document.getElementById('password').value = '';
+  const el = document.getElementById('password-saved');
+  el.style.display = 'inline';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
 
-  // ── Status message ────────────────────────────────────────────────────────
-  function showStatus(id, msg, ok) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.className = 'status ' + (ok ? 'ok' : 'err');
-  }
+function showStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (ok ? 'ok' : 'err');
+}
 
-  // ── Current rooms ─────────────────────────────────────────────────────────
-  async function loadRooms() {
-    const grid = document.getElementById('door-grid');
-    try {
-      const res  = await fetch('/admin/rooms');
-      const data = await res.json();
-      const doors = ['north', 'east', 'south', 'west'];
-      grid.innerHTML = doors.map(door => {
-        const room = data[door];
-        const body = room
-          ? `<div class="room-name">${room.varName}</div>
-             <div class="room-file">${room.fileName}</div>
-             <button class="btn btn-small btn-danger" onclick="removeRoom('${door}')">Remove</button>`
-          : `<div class="empty">(empty)</div>`;
-        return `<div class="door-card"><h3>${door}</h3>${body}</div>`;
-      }).join('');
-    } catch (e) {
-      grid.innerHTML = `<p style="color:#e07a7a">Failed to load: ${e.message}</p>`;
-    }
-  }
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`).classList.add('active');
+  if (name === 'rooms') loadSlots();
+  if (name === 'pending-rooms') loadPendingRooms();
+  if (name === 'pending-games') loadPendingGames();
+}
 
-  // ── Validation ────────────────────────────────────────────────────────────
-  const CHECKS = [
-    {
-      id: 'no-jsx',
-      label: 'No JSX or HTML tags',
-      test: code => !/<(?:div|span|p|h[1-6]|ul|ol|li|button|input|form|section|header|footer|nav|main|article|img|a)\b/i.test(code)
-                 && !/className\s*=/.test(code)
-                 && !/ReactDOM|React\.createElement|from ['"]react['"]/.test(code),
-    },
-    {
-      id: 'no-imports',
-      label: 'No import or require statements',
-      test: code => !/^\s*import\s+/m.test(code) && !/require\s*\(/.test(code),
-    },
-    {
-      id: 'has-name',
-      label: 'Exports: name (string)',
-      test: code => /export\s+const\s+name\s*=/.test(code),
-    },
-    {
-      id: 'has-onLoad',
-      label: 'Exports: onLoad function',
-      test: code => /export\s+(function\s+onLoad|const\s+onLoad\s*=)/.test(code),
-    },
-    {
-      id: 'has-onCreate',
-      label: 'Exports: onCreate function',
-      test: code => /export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(code),
-    },
-    {
-      id: 'has-onUpdate',
-      label: 'Exports: onUpdate function',
-      test: code => /export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(code),
-    },
-    {
-      id: 'has-onExit',
-      label: 'Exports: onExit function',
-      test: code => /export\s+(function\s+onExit|const\s+onExit\s*=)/.test(code),
-    },
-  ];
+// ── Slot grid ─────────────────────────────────────────────────────────────────
+async function loadSlots() {
+  const grid = document.getElementById('slot-grid');
+  try {
+    const res   = await fetch('/api/portal-slots');
+    const { slots } = await res.json();
 
-  function runValidation(code) {
-    return CHECKS.map(check => ({ ...check, passed: check.test(code) }));
-  }
-
-  function showValidationResults(results, code) {
-    const box     = document.getElementById('validation-box');
-    const banner  = document.getElementById('validation-banner');
-    const list    = document.getElementById('check-list');
-    const promptBox = document.getElementById('gemini-prompt-box');
-
-    const failures = results.filter(r => !r.passed);
-    const allPass  = failures.length === 0;
-
-    banner.textContent = allPass
-      ? '✓ All checks passed — code looks good to approve.'
-      : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — do not approve until fixed.`;
-    banner.className = 'validation-banner ' + (allPass ? 'all-pass' : 'has-fail');
-
-    list.innerHTML = results.map(r => {
-      const detail = (!r.passed && r.syntaxError)
-        ? `<pre style="font-size:0.75rem;margin-top:0.35rem;color:#e07a7aaa;white-space:pre-wrap">${r.syntaxError}</pre>`
-        : '';
-      return `<li class="${r.passed ? 'pass' : 'fail'}">
-        <span class="icon">${r.passed ? '✓' : '✗'}</span>
-        <span>${r.label}${detail}</span>
-      </li>`;
-    }).join('');
-
-    if (!allPass) {
-      document.getElementById('gemini-prompt').value = buildGeminiPrompt(code, failures);
-      promptBox.style.display = 'block';
-    } else {
-      promptBox.style.display = 'none';
-    }
-
-    box.style.display = 'block';
-    return allPass;
-  }
-
-  function buildGeminiPrompt(code, failures) {
-    const issueList = failures.map(f => {
-      switch (f.id) {
-        case 'no-jsx':
-          return '- The code contains JSX or HTML-like syntax (e.g. <div>, <span>, className). This is a React/web app pattern and is not compatible with the game engine.';
-        case 'no-imports':
-          return '- The code contains import or require statements. Room files must be fully self-contained — no external libraries or modules allowed.';
-        case 'has-name':
-          return '- Missing: export const name = \'Your Room Name\'; (a plain string export is required)';
-        case 'has-onLoad':
-          return '- Missing: export function onLoad(scene) { ... }';
-        case 'has-onCreate':
-          return '- Missing: export function onCreate(scene) { ... }';
-        case 'has-onUpdate':
-          return '- Missing: export function onUpdate(scene) { ... }';
-        case 'has-onExit':
-          return '- Missing: export function onExit(scene) { ... }';
-        case 'syntax':
-          return `- The code has a JavaScript syntax error that prevents it from loading:\n  ${f.syntaxError || 'Unknown syntax error'}`;
-        default:
-          return `- Failed check: ${f.label}`;
-      }
-    }).join('\n');
-
-    return `The room code I submitted has errors and cannot be added to the game. Please fix it.
-
-ISSUES FOUND:
-${issueList}
-
-RULES THE CODE MUST FOLLOW:
-- Plain JavaScript module only — no JSX, no React, no HTML tags, no className
-- No import statements and no require() calls
-- Must export exactly these 5 things:
-    export const name = 'Your Room Name';   // a string
-    export function onLoad(scene) { ... }   // runs once before the room starts
-    export function onCreate(scene) { ... } // runs once when the room starts
-    export function onUpdate(scene) { ... } // runs every frame
-    export function onExit(scene) { ... }   // runs when the player leaves
-- All visuals must use the scene object:
-    scene.add.rectangle(x, y, width, height, color)
-    scene.add.text(x, y, 'text', { fontSize: '16px', fill: '#ffffff' })
-    scene.physics.add.staticGroup()
-    scene.cameras.main.setBackgroundColor('#rrggbb')
-- To send the player back to the town square, call: scene.exitRoom()
-- No external libraries. No frameworks. No globals.
-
-ORIGINAL CODE TO FIX:
-\`\`\`js
-${code}
-\`\`\`
-
-Please rewrite it as a correct plain JavaScript module following all the rules above. Return only the complete JS file with no explanation.`;
-  }
-
-  async function checkSyntaxServer(code) {
-    try {
-      const res  = await fetch('/admin/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+    // Update slot-select dropdowns
+    ['slot-select', 'game-slot-select'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const current = sel.value;
+      sel.innerHTML = '<option value="">— choose a slot —</option>';
+      slots.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        opt.textContent = `${s.key} — ${s.roomName ?? '(empty)'}`;
+        sel.appendChild(opt);
       });
-      const data = await res.json();
-      return {
-        id: 'syntax',
-        label: 'Valid JavaScript syntax',
-        passed: data.ok,
-        syntaxError: data.syntaxError || null,
-      };
-    } catch (e) {
-      // If the server is unreachable, don't block — just skip this check.
-      return { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
-    }
-  }
-
-  async function validateOnly() {
-    const code = document.getElementById('room-code').value.trim();
-    if (!code) { showStatus('approve-status', 'Paste room code first.', false); return; }
-    const patternResults = runValidation(code);
-    const syntaxResult   = await checkSyntaxServer(code);
-    showValidationResults([...patternResults, syntaxResult], code);
-    document.getElementById('approve-status').className = 'status';
-  }
-
-  function copyGeminiPrompt() {
-    const text = document.getElementById('gemini-prompt').value;
-    navigator.clipboard.writeText(text).then(() => {
-      const fb = document.getElementById('copy-feedback');
-      fb.style.display = 'inline';
-      setTimeout(() => fb.style.display = 'none', 2500);
+      if (current) sel.value = current;
     });
+
+    grid.innerHTML = slots.map(s => {
+      const active = !!s.fileName;
+      return `
+        <div class="slot-card ${active ? 'active' : ''}">
+          <h3>${s.key}</h3>
+          ${active
+            ? `<div class="room-name">${s.roomName ?? '?'}</div>
+               <div class="room-file">${s.fileName}${s.gameFileName ? '<br>🎮 ' + s.gameFileName : ''}</div>
+               <button class="btn btn-small btn-danger" onclick="removeRoom('${s.key}')">Remove</button>`
+            : '<div class="empty">(empty)</div>'}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    grid.innerHTML = `<p style="color:#e07a7a">Failed to load: ${e.message}</p>`;
   }
+}
 
-  // ── Approve ───────────────────────────────────────────────────────────────
-  async function approveRoom() {
-    const password = getPassword();
-    const door     = document.getElementById('door-select').value;
-    const roomName = document.getElementById('room-name').value.trim();
-    const code     = document.getElementById('room-code').value.trim();
+async function removeRoom(slotKey) {
+  const password = getPassword();
+  if (!password) { alert('Enter and save your password first.'); return; }
+  if (!confirm(`Remove the room from ${slotKey}?\n\nThe .js file stays in src/rooms/ but the portal goes dark.`)) return;
+  try {
+    const res  = await fetch('/admin/remove-room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, slotKey }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`Error: ${data.error}`); return; }
+    loadSlots();
+  } catch (e) { alert(`Request failed: ${e.message}`); }
+}
 
-    if (!password) return showStatus('approve-status', 'Enter and save your password first.', false);
-    if (!roomName) return showStatus('approve-status', 'Room name is required.', false);
-    if (!code)     return showStatus('approve-status', 'Room code is required.', false);
+// ── Validation ─────────────────────────────────────────────────────────────────
+const CHECKS = [
+  { id: 'no-jsx',      label: 'No JSX or HTML tags',       test: c => !/<(?:div|span|p|h[1-6]|ul|li|button|input|form)\b/i.test(c) && !/className\s*=/.test(c) },
+  { id: 'no-imports',  label: 'No import or require',       test: c => !/^\s*import\s+/m.test(c) && !/require\s*\(/.test(c) },
+  { id: 'has-name',    label: 'Exports: name (string)',     test: c => /export\s+const\s+name\s*=/.test(c) },
+  { id: 'has-onLoad',  label: 'Exports: onLoad function',  test: c => /export\s+(function\s+onLoad|const\s+onLoad\s*=)/.test(c) },
+  { id: 'has-onCreate',label: 'Exports: onCreate function',test: c => /export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(c) },
+  { id: 'has-onUpdate',label: 'Exports: onUpdate function',test: c => /export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(c) },
+  { id: 'has-onExit',  label: 'Exports: onExit function',  test: c => /export\s+(function\s+onExit|const\s+onExit\s*=)/.test(c) },
+  { id: 'no-fetch',    label: 'No fetch/document/window',  test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
+];
 
-    // Always validate before approving (pattern checks + server syntax check)
-    const patternResults = runValidation(code);
-    const syntaxResult   = await checkSyntaxServer(code);
-    const allPass = showValidationResults([...patternResults, syntaxResult], code);
-    if (!allPass) {
-      showStatus('approve-status', 'Fix the issues above before approving.', false);
+const GAME_CHECKS = [
+  { id: 'no-imports',       label: 'No import or require',          test: c => !/^\s*import\s+/m.test(c) && !/require\s*\(/.test(c) },
+  { id: 'has-game',         label: 'Exports: game object',          test: c => /export\s+const\s+game\s*=/.test(c) },
+  { id: 'has-gameName',     label: 'game.gameName defined',         test: c => /gameName\s*:/.test(c) },
+  { id: 'has-onGameLoad',   label: 'game.onGameLoad defined',       test: c => /onGameLoad\s*[:(]/.test(c) },
+  { id: 'has-onGameCreate', label: 'game.onGameCreate defined',     test: c => /onGameCreate\s*[:(]/.test(c) },
+  { id: 'has-onGameUpdate', label: 'game.onGameUpdate defined',     test: c => /onGameUpdate\s*[:(]/.test(c) },
+  { id: 'has-onGameExit',   label: 'game.onGameExit defined',       test: c => /onGameExit\s*[:(]/.test(c) },
+  { id: 'has-exitGame',     label: 'Calls scene.exitGame()',        test: c => /scene\.exitGame\s*\(/.test(c) },
+  { id: 'no-fetch',         label: 'No fetch/document/window',      test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
+];
+
+function runValidation(code) { return CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
+function runGameValidation(code) { return GAME_CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
+
+// Fetches full code for a pending submission and runs the appropriate checks inline.
+async function validatePendingCode(id, type) {
+  const pw      = getPassword();
+  const box     = document.getElementById(`val-${id}`);
+  const fullEl  = document.getElementById(`full-${id}`);
+
+  if (!pw) { box.innerHTML = '<p style="color:#e07a7a;font-size:0.82rem">Enter and save your password first.</p>'; box.style.display = 'block'; return; }
+
+  box.innerHTML = '<p style="color:#888;font-size:0.82rem">Validating…</p>';
+  box.style.display = 'block';
+
+  // Fetch full code if not already loaded
+  let code = fullEl.textContent;
+  if (!code) {
+    const endpoint = type === 'room' ? `/admin/pending-rooms/${id}/code` : `/admin/pending-games/${id}/code`;
+    try {
+      const res  = await fetch(`${endpoint}?password=${encodeURIComponent(pw)}`);
+      const data = await res.json();
+      code = data.code ?? '';
+      fullEl.textContent = code;
+    } catch (e) {
+      box.innerHTML = `<p style="color:#e07a7a;font-size:0.82rem">Failed to load code: ${e.message}</p>`;
       return;
     }
+  }
 
-    try {
-      const res  = await fetch('/admin/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, door, roomName, code }),
-      });
-      const data = await res.json();
-      if (!res.ok) return showStatus('approve-status', `Error: ${data.error}`, false);
-      showStatus('approve-status',
-        `✓ Room approved! Written to src/rooms/${data.fileName} → ${door} door. Restart the server to load it.`,
-        true);
-      document.getElementById('room-name').value = '';
-      document.getElementById('room-code').value = '';
-      document.getElementById('validation-box').style.display = 'none';
-      loadRooms();
-    } catch (e) {
-      showStatus('approve-status', `Request failed: ${e.message}`, false);
+  // Run pattern checks
+  const patternResults = type === 'room' ? runValidation(code) : runGameValidation(code);
+
+  // Server syntax check
+  let syntaxResult;
+  try {
+    const res  = await fetch('/admin/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const data = await res.json();
+    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax', passed: data.ok, syntaxError: data.syntaxError || null };
+  } catch {
+    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
+  }
+
+  const results  = [...patternResults, syntaxResult];
+  const failures = results.filter(r => !r.passed);
+  const allPass  = failures.length === 0;
+
+  const banner = allPass
+    ? `<div class="validation-banner all-pass">✓ All checks passed — safe to approve.</div>`
+    : `<div class="validation-banner has-fail">✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.</div>`;
+
+  const items = results.map(r => {
+    const detail = (!r.passed && r.syntaxError)
+      ? `<pre style="font-size:0.72rem;margin-top:0.25rem;color:#e07a7aaa;white-space:pre-wrap">${escHtml(r.syntaxError)}</pre>` : '';
+    return `<li class="${r.passed ? 'pass' : 'fail'}"><span class="icon">${r.passed ? '✓' : '✗'}</span><span>${r.label}${detail}</span></li>`;
+  }).join('');
+
+  box.innerHTML = `<div class="validation-banner ${allPass ? 'all-pass' : 'has-fail'}">${allPass ? '✓ All checks passed — safe to approve.' : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.`}</div><ul class="check-list">${items}</ul>`;
+}
+
+function showValidationResults(results, code) {
+  const box     = document.getElementById('validation-box');
+  const banner  = document.getElementById('validation-banner');
+  const list    = document.getElementById('check-list');
+  const promptBox = document.getElementById('gemini-prompt-box');
+  const failures  = results.filter(r => !r.passed);
+  const allPass   = failures.length === 0;
+  banner.textContent = allPass ? '✓ All checks passed.' : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found.`;
+  banner.className = 'validation-banner ' + (allPass ? 'all-pass' : 'has-fail');
+  list.innerHTML = results.map(r => {
+    const detail = (!r.passed && r.syntaxError)
+      ? `<pre style="font-size:0.75rem;margin-top:0.35rem;color:#e07a7aaa;white-space:pre-wrap">${r.syntaxError}</pre>` : '';
+    return `<li class="${r.passed ? 'pass' : 'fail'}"><span class="icon">${r.passed ? '✓' : '✗'}</span><span>${r.label}${detail}</span></li>`;
+  }).join('');
+  if (!allPass) {
+    document.getElementById('gemini-prompt').value = buildGeminiPrompt(code, failures);
+    promptBox.style.display = 'block';
+  } else {
+    promptBox.style.display = 'none';
+  }
+  box.style.display = 'block';
+  return allPass;
+}
+
+function buildGeminiPrompt(code, failures) {
+  const issueList = failures.map(f => {
+    switch (f.id) {
+      case 'no-jsx':       return '- The code contains JSX or HTML-like syntax. Use only scene.add.* methods.';
+      case 'no-imports':   return '- The code contains import or require statements. Room files must be self-contained.';
+      case 'has-name':     return "- Missing: export const name = 'Your Room Name';";
+      case 'has-onLoad':   return '- Missing: export function onLoad(scene) { ... }';
+      case 'has-onCreate': return '- Missing: export function onCreate(scene) { ... }';
+      case 'has-onUpdate': return '- Missing: export function onUpdate(scene) { ... }';
+      case 'has-onExit':   return '- Missing: export function onExit(scene) { ... }';
+      case 'syntax':       return `- JavaScript syntax error:\n  ${f.syntaxError || 'Unknown'}`;
+      default:             return `- Failed: ${f.label}`;
     }
+  }).join('\n');
+  return `The room code has errors. Please fix it.\n\nISSUES:\n${issueList}\n\nRULES:\n- Plain JavaScript module only — no JSX, no imports\n- Must export: name, onLoad, onCreate, onUpdate, onExit\n- Use scene.add.* for all visuals\n- Call scene.exitRoom() to exit\n\nORIGINAL CODE:\n\`\`\`js\n${code}\n\`\`\`\n\nReturn only the corrected JS file.`;
+}
+
+async function checkSyntaxServer(code) {
+  try {
+    const res  = await fetch('/admin/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const data = await res.json();
+    return { id: 'syntax', label: 'Valid JavaScript syntax', passed: data.ok, syntaxError: data.syntaxError || null };
+  } catch {
+    return { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
   }
+}
 
-  // ── Remove ────────────────────────────────────────────────────────────────
-  async function removeRoom(door) {
-    const password = getPassword();
-    if (!password) { alert('Enter and save your password first.'); return; }
-    if (!confirm(`Remove the room from the ${door} door?\n\nThe .js file stays in src/rooms/ but won't be loaded.`)) return;
+async function validateOnly() {
+  const code = document.getElementById('room-code').value.trim();
+  if (!code) { showStatus('assign-status', 'Paste room code first.', false); return; }
+  const results = [...runValidation(code), await checkSyntaxServer(code)];
+  showValidationResults(results, code);
+  document.getElementById('assign-status').className = 'status';
+}
 
+function copyGeminiPrompt() {
+  navigator.clipboard.writeText(document.getElementById('gemini-prompt').value).then(() => {
+    const fb = document.getElementById('copy-feedback');
+    fb.style.display = 'inline';
+    setTimeout(() => fb.style.display = 'none', 2500);
+  });
+}
+
+// ── Assign room directly ───────────────────────────────────────────────────────
+async function assignRoom() {
+  const password = getPassword();
+  const slotKey  = document.getElementById('slot-select').value;
+  const roomName = document.getElementById('room-name').value.trim();
+  const code     = document.getElementById('room-code').value.trim();
+
+  if (!password) return showStatus('assign-status', 'Enter and save your password first.', false);
+  if (!slotKey)  return showStatus('assign-status', 'Choose a portal slot.', false);
+  if (!roomName) return showStatus('assign-status', 'Room name is required.', false);
+  if (!code)     return showStatus('assign-status', 'Room code is required.', false);
+
+  const results = [...runValidation(code), await checkSyntaxServer(code)];
+  const allPass = showValidationResults(results, code);
+  if (!allPass) { showStatus('assign-status', 'Fix the issues above before assigning.', false); return; }
+
+  try {
+    const res  = await fetch('/admin/assign-room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, slotKey, roomName, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showStatus('assign-status', `Error: ${data.errors?.join(', ') ?? data.error}`, false);
+    showStatus('assign-status', `✓ Room "${roomName}" assigned to ${slotKey} (${data.fileName}). Live immediately — no restart needed!`, true);
+    document.getElementById('room-name').value = '';
+    document.getElementById('room-code').value = '';
+    document.getElementById('slot-select').value = '';
+    document.getElementById('validation-box').style.display = 'none';
+    loadSlots();
+  } catch (e) {
+    showStatus('assign-status', `Request failed: ${e.message}`, false);
+  }
+}
+
+// ── Pending Rooms ──────────────────────────────────────────────────────────────
+async function loadPendingRooms() {
+  const list = document.getElementById('pending-rooms-list');
+  const pw   = getPassword();
+  if (!pw) { list.innerHTML = '<p class="empty-state">Enter and save your password first.</p>'; return; }
+  try {
+    const res  = await fetch(`/admin/pending-rooms?password=${encodeURIComponent(pw)}`);
+    const data = await res.json();
+    if (!res.ok) { list.innerHTML = `<p style="color:#e07a7a">${data.error}</p>`; return; }
+    const badge = document.getElementById('pending-rooms-badge');
+    if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+    if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending submissions.</p>'; return; }
+    list.innerHTML = data.map(s => `
+      <div class="pending-card" id="proom-${s.id}">
+        <div class="meta">
+          <strong style="color:#e0e0e0">${s.playerName}</strong>
+          <span class="badge badge-slot">${s.slotKey}</span>
+          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff;margin-left:4px">UPDATE</span>' : ''}
+          — ${new Date(s.submittedAt).toLocaleString()}
+        </div>
+        <div class="preview" id="preview-${s.id}">${escHtml(s.codePreview)}…</div>
+        <div class="full-code" id="full-${s.id}"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}', 'room')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', 'room')">Validate Code</button>
+          <button class="btn btn-success btn-small" onclick="approveRoom('${s.id}', '${escAttr(s.playerName)}', ${!!s.isUpdate})">✓ Approve</button>
+        </div>
+        <div class="inline-validation" id="val-${s.id}"></div>
+        <div class="reject-row">
+          <input class="reject-input" type="text" id="reject-reason-${s.id}" placeholder="Rejection reason (optional)">
+          <button class="btn btn-danger btn-small" onclick="rejectRoom('${s.id}')">✗ Reject</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    list.innerHTML = `<p style="color:#e07a7a">Failed: ${e.message}</p>`;
+  }
+}
+
+async function toggleFullCode(id, type) {
+  const pw      = getPassword();
+  const preview = document.getElementById(`preview-${id}`);
+  const full    = document.getElementById(`full-${id}`);
+  if (full.style.display === 'block') { full.style.display = 'none'; preview.style.display = 'block'; return; }
+  if (!full.textContent) {
+    const endpoint = type === 'room' ? `/admin/pending-rooms/${id}/code` : `/admin/pending-games/${id}/code`;
     try {
-      const res  = await fetch('/admin/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, door }),
-      });
+      const res  = await fetch(`${endpoint}?password=${encodeURIComponent(pw)}`);
       const data = await res.json();
-      if (!res.ok) { alert(`Error: ${data.error}`); return; }
-      loadRooms();
-    } catch (e) {
-      alert(`Request failed: ${e.message}`);
-    }
+      full.textContent = data.code ?? data.error;
+    } catch (e) { full.textContent = 'Failed to load: ' + e.message; }
   }
+  preview.style.display = 'none';
+  full.style.display = 'block';
+}
 
-  // Show saved indicator on load if password already exists
-  if (sessionStorage.getItem('woc_admin_pw')) {
-    const el = document.getElementById('password-saved');
-    el.textContent = 'Password saved ✓';
-    el.style.display = 'inline';
+async function approveRoom(submissionId, name, isUpdate = false) {
+  const pw = getPassword();
+  if (!pw) { alert('Enter and save your password first.'); return; }
+  const confirmMsg = isUpdate
+    ? `Approve update for "${name}"? This overwrites the existing room file immediately.`
+    : `Approve world "${name}"? This writes the room file and activates the portal immediately.`;
+  if (!confirm(confirmMsg)) return;
+  try {
+    const res  = await fetch('/admin/approve-room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, submissionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('pending-room-status', `Error: ${data.error}`, false); return; }
+    const okMsg = isUpdate ? `✓ Update approved! Room file replaced (${data.fileName}).` : `✓ Approved! Portal is now live (${data.fileName}).`;
+    showStatus('pending-room-status', okMsg, true);
+    document.getElementById(`proom-${submissionId}`)?.remove();
+    loadSlots();
+  } catch (e) { showStatus('pending-room-status', `Failed: ${e.message}`, false); }
+}
+
+async function rejectRoom(submissionId) {
+  const pw     = getPassword();
+  const reason = document.getElementById(`reject-reason-${submissionId}`)?.value.trim();
+  if (!pw) { alert('Enter and save your password first.'); return; }
+  try {
+    const res  = await fetch('/admin/reject-room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, submissionId, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('pending-room-status', `Error: ${data.error}`, false); return; }
+    showStatus('pending-room-status', 'Submission rejected. Player notified.', true);
+    document.getElementById(`proom-${submissionId}`)?.remove();
+  } catch (e) { showStatus('pending-room-status', `Failed: ${e.message}`, false); }
+}
+
+// ── Pending Games ──────────────────────────────────────────────────────────────
+async function loadPendingGames() {
+  const list = document.getElementById('pending-games-list');
+  const pw   = getPassword();
+  if (!pw) { list.innerHTML = '<p class="empty-state">Enter and save your password first.</p>'; return; }
+  try {
+    const res  = await fetch(`/admin/pending-games?password=${encodeURIComponent(pw)}`);
+    const data = await res.json();
+    if (!res.ok) { list.innerHTML = `<p style="color:#e07a7a">${data.error}</p>`; return; }
+    const badge = document.getElementById('pending-games-badge');
+    if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+    if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending game submissions.</p>'; return; }
+    list.innerHTML = data.map(g => `
+      <div class="pending-card" id="pgame-${g.id}">
+        <div class="meta">
+          <strong style="color:#e0e0e0">${g.submittedBy ?? 'unknown'}</strong>
+          — Game for <span class="badge badge-slot">${g.slotKey}</span>
+          ${g.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff;margin-left:4px">UPDATE</span>' : ''}
+          — ${new Date(g.submittedAt).toLocaleString()}
+        </div>
+        <div class="preview" id="preview-${g.id}">${escHtml(g.codePreview)}…</div>
+        <div class="full-code" id="full-${g.id}"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${g.id}', 'game')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${g.id}', 'game')">Validate Code</button>
+          <button class="btn btn-success btn-small" onclick="approveGame('${g.id}')">✓ Approve</button>
+        </div>
+        <div class="inline-validation" id="val-${g.id}"></div>
+        <div class="reject-row">
+          <input class="reject-input" type="text" id="reject-reason-${g.id}" placeholder="Rejection reason (optional)">
+          <button class="btn btn-danger btn-small" onclick="rejectGame('${g.id}')">✗ Reject</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    list.innerHTML = `<p style="color:#e07a7a">Failed: ${e.message}</p>`;
   }
+}
 
-  loadRooms();
+async function submitGame() {
+  const pw      = getPassword();
+  const slotKey = document.getElementById('game-slot-select').value;
+  const code    = document.getElementById('game-code').value.trim();
+  if (!pw)      return showStatus('game-submit-status', 'Enter and save your password first.', false);
+  if (!slotKey) return showStatus('game-submit-status', 'Choose a portal slot.', false);
+  if (!code)    return showStatus('game-submit-status', 'Paste game code first.', false);
+  try {
+    const res  = await fetch('/api/submit-game', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slotKey, submittedBy: 'admin', code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showStatus('game-submit-status', `Error: ${data.errors?.join(', ') ?? data.error}`, false);
+    showStatus('game-submit-status', 'Game submitted to pending queue.', true);
+    document.getElementById('game-code').value = '';
+    loadPendingGames();
+  } catch (e) { showStatus('game-submit-status', `Failed: ${e.message}`, false); }
+}
+
+async function approveGame(submissionId) {
+  const pw = getPassword();
+  if (!pw) { alert('Enter and save your password first.'); return; }
+  if (!confirm('Approve this mini-game? It will be live immediately.')) return;
+  try {
+    const res  = await fetch('/admin/approve-game', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, submissionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('pending-game-status', `Error: ${data.error}`, false); return; }
+    showStatus('pending-game-status', `✓ Game approved and live! (${data.gameFileName})`, true);
+    document.getElementById(`pgame-${submissionId}`)?.remove();
+    loadSlots();
+  } catch (e) { showStatus('pending-game-status', `Failed: ${e.message}`, false); }
+}
+
+async function rejectGame(submissionId) {
+  const pw     = getPassword();
+  const reason = document.getElementById(`reject-reason-${submissionId}`)?.value.trim();
+  if (!pw) { alert('Enter and save your password first.'); return; }
+  try {
+    const res  = await fetch('/admin/reject-game', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, submissionId, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('pending-game-status', `Error: ${data.error}`, false); return; }
+    showStatus('pending-game-status', 'Game submission rejected.', true);
+    document.getElementById(`pgame-${submissionId}`)?.remove();
+  } catch (e) { showStatus('pending-game-status', `Failed: ${e.message}`, false); }
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s ?? '').replace(/'/g, '\\\'');
+}
+
+// Init
+if (sessionStorage.getItem('woc_admin_pw')) {
+  const el = document.getElementById('password-saved');
+  el.textContent = 'Password saved ✓';
+  el.style.display = 'inline';
+}
+loadSlots();
 </script>
 </body>
 </html>

@@ -34,17 +34,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // ── Panel backdrop ────────────────────────────────────────────────────────
-    this.add.rectangle(400, 300, 800, 600, 0x000000, 0.72).setDepth(0);
-    this.add.rectangle(400, 310, 780, 560, 0x0d0d1a).setDepth(1);
+    // ── Panel backdrop (negative depth so game content at depth 0 renders above) ─
+    this.add.rectangle(400, 300, 800, 600, 0x000000, 0.72).setDepth(-2);
+    this.add.rectangle(400, 310, 780, 560, 0x0d0d1a).setDepth(-1);
 
-    // Border
-    const border = this.add.graphics().setDepth(2);
+    // Border and divider sit on top of game content as a permanent frame
+    const border = this.add.graphics().setDepth(50);
     border.lineStyle(2, 0x8B5CF6, 0.9);
     border.strokeRect(12, 28, 776, 556);
 
     // Divider below header
-    const div = this.add.graphics().setDepth(2);
+    const div = this.add.graphics().setDepth(50);
     div.lineStyle(1, 0x8B5CF6, 0.35);
     div.lineBetween(12, 62, 788, 62);
 
