@@ -1,9 +1,4 @@
 {
-  "slot02": {
-    "fileName": "underwater-world.js",
-    "roomName": "Underwater World",
-    "claimedBy": "admin"
-  },
   "slot03": {
     "fileName": "basket-ball-court.js",
     "roomName": "Basketball Court",
@@ -19,5 +14,55 @@
     "roomName": "hh",
     "claimedBy": "hh",
     "gameFileName": "game-slot16.js"
+  },
+  "slot15": {
+    "fileName": "yi-jasmeen.js",
+    "roomName": "yi jasmeen",
+    "claimedBy": "yi jasmeen"
+  },
+  "slot18": {
+    "fileName": "emmanuel-tan.js",
+    "roomName": "emmanuel tan",
+    "claimedBy": "emmanuel tan"
+  },
+  "slot02": {
+    "fileName": "nether.js",
+    "roomName": "nether",
+    "claimedBy": "nether"
+  },
+  "slot19": {
+    "fileName": "emmanuel-tan.js",
+    "roomName": "emmanuel tan",
+    "claimedBy": "emmanuel tan"
+  },
+  "slot01": {
+    "fileName": "aleshaaa.js",
+    "roomName": "Aleshaaa",
+    "claimedBy": "Aleshaaa"
+  },
+  "slot11": {
+    "fileName": "sufina.js",
+    "roomName": "sufina",
+    "claimedBy": "sufina"
+  },
+  "slot08": {
+    "fileName": "ming-jian.js",
+    "roomName": "Ming Jian",
+    "claimedBy": "Ming Jian"
+  },
+  "slot10": {
+    "fileName": "danielle-world.js",
+    "roomName": "Danielle world",
+    "claimedBy": "Danielle world"
+  },
+  "slot07": {
+    "fileName": "kristabel.js",
+    "roomName": "Kristabel",
+    "claimedBy": "Kristabel"
+  },
+  "slot09": {
+    "fileName": "kristabelly.js",
+    "roomName": "Kristabelly",
+    "claimedBy": "Kristabelly"
   }
 }
