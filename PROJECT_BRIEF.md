@@ -12,7 +12,7 @@ There is a **shared town square** where all players can walk around and see each
 
 Beyond sharing and trying out creations, the platform is meant to encourage players to document their creative process, give and receive feedback, and optionally share their code so others can remix it. A public profile page gives each player an overview of everything they've made, without needing to walk the world to find it.
 
-**Current status:** Phases 1–7 are complete and live (see "Full Original Plan" below). Phase 8 (auth + generalized submission system) has not been started yet. Before beginning implementation, check "Open Discussion Topics" — world size and movable objects are still unresolved and may affect Phase 8+ design.
+**Current status:** Phases 1–7 are complete and live (see "Full Original Plan" below). Phase 8 (town square redesign + levels) is next — it has no dependency on auth, so it's the starting point rather than Phase 9 (auth + generalized submission system, previously numbered Phase 8). World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
 
 ---
 
@@ -87,7 +87,7 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 
 ---
 
-## Vocabulary (Phase 8+ vision)
+## Vocabulary (Phase 9+ vision)
 
 - **Creation** — any approved, code-based artifact that runs inside the shared world: a room, a mini-game, room music, or a future kind not yet invented. Distinct from a **nested link** (an external URL a player attaches to an object in their room — opens in a new tab, not code, not admin-approved).
 - **Kind** — a creation's type (`room`, `game`, `music`, ...). The submission system is built so new kinds can be registered without duplicating the approval pipeline.
@@ -98,7 +98,7 @@ All player room files are reviewed by me before being added to `src/rooms/`. The
 
 ---
 
-## Key Decisions & Rationale (Phase 8–16)
+## Key Decisions & Rationale (Phase 9–17)
 
 The phase descriptions above say *what* to build. This section records *why* —
 the full reasoning, alternatives considered, and open caveats behind each
@@ -108,11 +108,12 @@ wasn't part of the original discussion.
 ### What players will be able to create
 
 The original Phase 8/9/10 plan only covered rooms and mini-games. The expanded
-vision adds three more player-created things: **character skins** (already
-planned, Phase 9, unchanged), **room music**, and **external artifact links**
+vision adds four more player-created things: **character skins** (already
+planned, Phase 10, unchanged), **room music**, **external artifact links**
 (a player's own website or other vibe-coded creation, attached to an object in
-their room for others to open and explore). Plus the explicit expectation that
-**more creation types will be added later** — the whole Phase 8 rework exists to
+their room for others to open and explore), and **objects** (decorative and
+interactive, Phase 11). Plus the explicit expectation that
+**more creation types will be added later** — the whole Phase 9 rework exists to
 absorb that without redesigning the pipeline each time.
 
 ### Approval scope is code, not communication
@@ -146,13 +147,13 @@ with a duplicate set of the same five endpoints for games. `RoomLoader.js` and
 a third kind the old way means copy-pasting this pattern a third time; each kind
 after that repeats the cost.
 
-**Decision:** Phase 8 replaces both with one `submissions` collection carrying a
+**Decision:** Phase 9 replaces both with one `submissions` collection carrying a
 `kind` field, one set of kind-parameterized endpoints, and a small registry
 (`src/creation-kinds/*.js`) where each kind declares its own required
 hooks/contract, validator, and loader. `room` and `game` are migrated into the
-registry as the first two kinds; `music` (Phase 10) is added as the third
-without touching the pipeline itself. Any future kind follows the same pattern:
-register it, don't rebuild the queue.
+registry as the first two kinds; `music` and `object` (Phase 11) are added as
+the third and fourth without touching the pipeline itself. Any future kind
+follows the same pattern: register it, don't rebuild the queue.
 
 ### Nested creations — external links vs. in-game creations
 
@@ -184,15 +185,16 @@ to the world," and it's important they stay distinct:
 ### Room music
 
 **Decision:** room music is vibe-coded (Gemini-generated Web Audio API / synth
-code), not an uploaded audio file. Registered as the `music` kind in the Phase 8
+code), not an uploaded audio file. Registered as the `music` kind in the Phase 9
 creation-kind registry, with its own hook contract (e.g. a `play(scene)` hook)
-validated the same way rooms and games are.
+validated the same way rooms and games are. Objects (Phase 11) follow the same
+pattern, registered as the `object` kind.
 
 **Why code instead of a file upload:** an upload would need entirely new
 infrastructure (file storage, size limits, a different validation story since
 `node --check` doesn't apply to binary audio) that doesn't exist anywhere in the
 project yet. Keeping music as code means it drops into the same pipeline being
-generalized in Phase 8 for free.
+generalized in Phase 9 for free.
 
 ### Feedback system — two tiers, tagged by source
 
@@ -240,7 +242,7 @@ without exposing unmoderated online feedback to the general/persistent
 population who might be playing solo and unsupervised at the same time.
 
 **What happens when a session ends:** creations made during the session go
-through the exact same admin-approval pipeline as any other submission (Phase 8)
+through the exact same admin-approval pipeline as any other submission (Phase 9)
 to join the main, persistent world — no special-cased approval path.
 
 **Feedback carry-over rule, stated precisely:**
@@ -355,7 +357,7 @@ goal one profile at a time; keeping the toggle admin-only preserves the default
 while still leaving an escape hatch for a specific situation that calls for it
 (decided case-by-case by the owner, not self-service).
 
-**Build ordering:** Phase 15, after Phases 11–13, since it's purely an
+**Build ordering:** Phase 16, after Phases 12–14, since it's purely an
 aggregation view over data those phases already produce (Process Log, sharing/
 remix, feedback) — it introduces no new data model of its own.
 
@@ -540,9 +542,23 @@ Club Penguin–style mini-game overlay:
 
 ---
 
-### PHASE 8 — FOUNDATION: AUTH + GENERALIZED SUBMISSION SYSTEM (PLANNED, revised)
+### PHASE 8 — TOWN SQUARE REDESIGN + LEVELS (PLANNED, new, decided 2026-07-14)
 
-Goal: everything from the original auth plan (Google Auth, Firestore, auto slot assignment), **plus** replacing today's duplicated room/game admin pipeline with one generic, kind-aware system — because Phase 10 adds music as a third kind, and more kinds are expected later. Without this, `RoomLoader.js`/`GameLoader.js` and the server's separate `pendingSubmissions`/`pendingGames` maps would get copy-pasted a third and fourth time.
+Goal: replace the current desert-themed town square with a Singapore-themed hub sized for the platform's growth, plus a mechanism for expanding further without repeatedly resizing the same map. Has no dependency on auth, so it's the starting point rather than Phase 9.
+
+- **World size:** the shared town square grows from 1600×1200 to **3600×2700** (5× area, same 4:3 aspect ratio — a 2.25× scale per dimension). Player room size stays 1600×1200 — this resize only affects the shared hub.
+- **Theme:** local Singapore — a central hub building styled like a community club, surrounded by a grid of streets. Portals sit on land plots along the streets instead of being scattered organically as they are today.
+- **Non-uniform plots:** plot sizes vary (Singapore land-parcel style) rather than a strict lattice; a handful of corner plots are triangular where streets meet at an angle. Target roughly **60–90 plots** for this level (up from today's 20) — a design budget, not a hard requirement.
+- **Build approach:** lay out streets/hub/plots as data (a list of shapes — rectangle, triangle, or polygon — each with an id and a "door" trigger point) rather than one-off hardcoded pixel positions, so a future resize or redesign is "update the data" rather than "manually re-place every element." Extract the client/server duplicated portal-position data (`PORTAL_SLOT_POSITIONS` in `WorldScene.js` vs. `PORTAL_SLOTS` in `server/index.js`, today synced only by a comment) into one shared file as part of this work.
+- **Design workflow:** layout designed visually on claude.ai (sketch/iterate, then export as structured coordinate JSON), then wired into the game — not designed directly in code.
+- **Levels, not further resizing:** future growth is handled by adding levels — a lift at the central hub takes players to a separate town-square instance (its own theme, its own plots) — rather than repeatedly widening the same map. Reuses the mechanism already proven for entering player rooms (`scene.launch()` + `scene.sleep()`, `currentRoom` tracked in shared schema — no new Colyseus connection per level). Build `WorldScene` as a reusable "hub scene" class parameterized by theme + portal set now, so adding a level later means writing a new theme config, not rewriting the engine.
+- **Deferred:** letting players redesign their own portal's visual facade (a themed building/door instead of a generic glowing circle) — a future idea, not built now; likely fits as another creation-kind once the Phase 9 registry exists.
+
+---
+
+### PHASE 9 — FOUNDATION: AUTH + GENERALIZED SUBMISSION SYSTEM (PLANNED, revised)
+
+Goal: everything from the original auth plan (Google Auth, Firestore, auto slot assignment), **plus** replacing today's duplicated room/game admin pipeline with one generic, kind-aware system — because Phase 11 adds music and objects as new kinds, and more kinds are expected later. Without this, `RoomLoader.js`/`GameLoader.js` and the server's separate `pendingSubmissions`/`pendingGames` maps would get copy-pasted a third and fourth time.
 
 **Auth (unchanged from original plan):**
 - `src/auth/firebase.js`, `googleAuth.js`, `session.js` — Firebase init, `signInWithGoogle()`/`signOut()`/`onAuthStateChanged()`, session singleton `{ uid, displayName, photoURL, slotKey, idToken }`
@@ -553,8 +569,8 @@ Goal: everything from the original auth plan (Google Auth, Firestore, auto slot 
 
 **Generalized submission system (new — replaces the current dual pipeline):**
 - Server: one `submissions` collection with a `kind` field, instead of separate `pendingSubmissions`/`pendingGames`. One set of endpoints: `POST /api/submit`, `GET /admin/pending`, `GET /admin/pending/:id/code`, `POST /admin/approve`, `POST /admin/reject` — all parameterized by `kind`.
-- A small kind registry (`src/creation-kinds/*.js`) — each kind declares its required hooks/contract, validator, and loader. `room` and `game` migrate into this registry as the first two kinds; `music` (Phase 10) becomes the third without touching the pipeline itself.
-- Admin panel: pending queue becomes kind-agnostic (filter by kind instead of hardcoded Rooms/Games tabs).
+- A small kind registry (`src/creation-kinds/*.js`) — each kind declares its required hooks/contract, validator, and loader. `room` and `game` migrate into this registry as the first two kinds; `music` and `object` (Phase 11) become the third and fourth without touching the pipeline itself. Objects have two sub-types within the `object` kind: **decorative** (schema-validated data, no code) and **interactive** (real code, human-reviewed like rooms, but submitted and reviewed as its own isolated unit — never bundled with or requiring resubmission of the room it belongs to). The registry's validator per kind can branch on sub-type, so decorative submissions skip the admin queue entirely while interactive ones enter it as small, separate items.
+- Admin panel: pending queue becomes kind-agnostic (filter by kind instead of hardcoded Rooms/Games tabs), with decorative-object submissions never appearing in it at all.
 
 **Firestore model (expanded):**
 ```
@@ -565,16 +581,19 @@ creations/{id}    → { uid, kind, slotKey, name, code,
                        processLog: { past, present, future, updatedAt },
                        linkedArtifacts: [{ label, url }],
                        createdAt, updatedAt }
+objects/{id}      → { uid, roomCreationId, subKind: 'decorative'|'interactive',
+                       shapeData: {...} | code: '...', x, y, movable: boolean,
+                       approved: boolean, createdAt }
 feedback/{id}     → { creationId, source: 'online'|'self-recorded',
                        authorUid: uid|null, sessionId: id|null, text, createdAt }
 sessions/{id}     → { hostUid, roster: [uid], startedAt, endedAt, status }
 ```
 
-Why this ordering: auth must exist before anything can be attributed to a player (feedback, remixing, profiles all need a stable `uid`). The generic submission system must exist before Phase 10 adds a third kind, or the duplication debt compounds.
+Why this ordering: Phase 8 (town square) has no such dependency and can run first. From here on, auth must exist before anything can be attributed to a player (feedback, remixing, profiles all need a stable `uid`). The generic submission system must exist before Phase 11 adds more kinds, or the duplication debt compounds.
 
 ---
 
-### PHASE 9 — CHARACTER CREATOR (PLANNED, unchanged)
+### PHASE 10 — CHARACTER CREATOR (PLANNED, unchanged)
 
 Goal: New players create a custom character via Gemini prompt before entering the world. Character persists in Firestore and renders for all other players.
 
@@ -597,27 +616,36 @@ Character config (simple JSON, upgradable to free-form JS later):
 
 ---
 
-### PHASE 10 — NESTED CREATIONS & ROOM MUSIC (PLANNED, new)
+### PHASE 11 — NESTED CREATIONS, ROOM MUSIC & OBJECTS (PLANNED, expanded 2026-07-14)
 
-Goal: let creators attach external links to objects in their room, and add room music as the third registered creation kind.
+Goal: let creators attach external links to objects in their room, add room music as a registered creation kind, and let creators add discrete objects to their world — some approved instantly, some through normal review — without ever needing to resubmit or regenerate the whole room.
 
 - **Nested creations (external links):** an object in a room can carry a `linkedArtifacts` entry (label + URL). Interacting with it opens the URL in a new tab — no iframing/embedding, since the linked site isn't vetted code.
-- **Room music:** vibe-coded (Gemini-generated Web Audio API / synth code, not an uploaded file — keeps it inside the existing code-validation pipeline rather than needing file storage). Registered as kind `music` in the Phase 8 registry, with its own contract (e.g. a `play(scene)` hook) and validator, reusing the generic approval queue.
+- **Room music:** vibe-coded (Gemini-generated Web Audio API / synth code, not an uploaded file — keeps it inside the existing code-validation pipeline rather than needing file storage). Registered as kind `music` in the Phase 9 registry, with its own contract (e.g. a `play(scene)` hook) and validator, reusing the generic approval queue.
+
+**Objects (new, decided 2026-07-14):** two distinct sub-types, both registered under the `object` kind in the Phase 9 registry, both submitted and tracked as individual units — never bundled into or requiring resubmission of the room's main code:
+
+1. **Decorative objects — data, not code, auto-approved.** Described as a shape list (rectangles, triangles, polygons, circles), with optional gradients, a glow preset, and a small set of animation presets (`pulse`, `rotate`, `drift`, `colorCycle`) — matching the visual techniques already used by the hand-built town-square decor (portals, paper airplane, sign post), all of which turn out to be expressible as pure data. A static object is one shape list; a simple animation (e.g. a blink or wave) is two shape lists ("frames") swapped on a timer. Because there's no executable logic, a submission can be fully validated automatically — valid shape types, in-bounds coordinates, valid colors — and approved or rejected instantly with no human review and no wait.
+2. **Interactive objects — real code, reviewed like a room, but submitted in isolation.** Anything needing actual logic (reacts to the player beyond simple proximity, has physics, generates itself with randomness) is genuine code, so it goes through human review the same way room and game code does today. Critically, it is submitted and reviewed as its own small, standalone unit — a player adding one interactive object never resubmits or regenerates their whole world; the admin reviews just that object's code, the same way game submissions already review separately from the room they attach to.
+
+**Movable objects:** any placed object (decorative or interactive) can be flagged `movable`. Moving one is a `{id, x, y}` position patch against an object that's already approved — never needs admin review, since it can't introduce new code, visuals, or behavior, only relocate something already vetted. Removing an object is likewise never reviewed — deletion can't introduce risk. Persistence: local-only (resets each visit) until Phase 9 auth exists, then server-saved and gated by "does this `uid` match the room's creator" — there's no secure way to check real ownership before that.
+
+**Admin panel implication:** the pending queue only ever shows interactive-object submissions, as small isolated items — decorative objects never appear there, since they're resolved automatically the instant they're submitted.
 
 ---
 
-### PHASE 11 — CREATIVE PROCESS LOG (PLANNED, new)
+### PHASE 12 — CREATIVE PROCESS LOG (PLANNED, new)
 
 Goal: per-creation past/present/future reflection, editable by the creator, visible to anyone viewing the creation.
 
 - In-game popup UI (same interaction pattern as the current notice-board signposts), attached to each creation, editable only by its creator
 - Stored on `creations/{id}.processLog`
-- Surfaces later on the profile page (Phase 15)
+- Surfaces later on the profile page (Phase 16)
 - Link-out (documenting elsewhere and pasting a URL instead of using in-game fields) is deferred — a possible future addition, not built now
 
 ---
 
-### PHASE 12 — SHARING & REMIX + VERSION HISTORY (PLANNED, new)
+### PHASE 13 — SHARING & REMIX + VERSION HISTORY (PLANNED, new)
 
 Goal: opt-in code sharing, self-declared remix attribution, capped version history.
 
@@ -629,7 +657,7 @@ Goal: opt-in code sharing, self-declared remix attribution, capped version histo
 
 ---
 
-### PHASE 13 — FEEDBACK SYSTEM (PLANNED, new)
+### PHASE 14 — FEEDBACK SYSTEM (PLANNED, new)
 
 Goal: online feedback (togglable) + always-available self-recorded feedback, tagged by source.
 
@@ -641,29 +669,29 @@ Goal: online feedback (togglable) + always-available self-recorded feedback, tag
 
 ---
 
-### PHASE 14 — IN-PERSON SESSION MODE (PLANNED, new)
+### PHASE 15 — IN-PERSON SESSION MODE (PLANNED, new)
 
 Goal: admin-started, invite-only temporary world instance for a facilitated group.
 
 - Admin panel: "Start session" — pick a roster of registered players, spins up a session-scoped world instance (separate Colyseus room from the persistent main WorldRoom)
 - Players in a session see each other; online feedback is implicitly live for the session's duration (no separate toggle needed inside a session)
-- "End session" — creations made during the session enter the normal Phase 8 approval pipeline to join the main world
+- "End session" — creations made during the session enter the normal Phase 9 approval pipeline to join the main world
 - On promotion to the main world: self-recorded feedback attached to a creation carries over; session-scoped *online* feedback does not
 - `sessions/{id}` tracks roster + status; feedback entries tag `sessionId` so session-only online feedback can be excluded from what carries over
 
 ---
 
-### PHASE 15 — PROFILE PAGE (PLANNED, new)
+### PHASE 16 — PROFILE PAGE (PLANNED, new)
 
 Goal: a page (outside the Phaser canvas, a normal web route) showing one player's creations, Creative Process Logs, and feedback received — visible to all players.
 
 - Route reads `creations`, `processLog`, and `feedback` filtered by `uid`
 - Visible to everyone by default; `users/{uid}.profileVisible` is an admin-only toggle (not player-controlled) for the rare case of hiding one
-- Built after Phases 11–13 since it's an aggregation view over data those phases produce — no new data model of its own
+- Built after Phases 12–14 since it's an aggregation view over data those phases produce — no new data model of its own
 
 ---
 
-### PHASE 16 — DEPLOYMENT (PLANNED, was Phase 10, renumbered)
+### PHASE 17 — DEPLOYMENT (PLANNED, was Phase 16, was Phase 10 originally — renumbered twice)
 
 Goal: Deploy frontend to Firebase Hosting (`yourapp.web.app`) and Colyseus to Railway.
 
@@ -688,22 +716,15 @@ Manual one-time steps (owner):
 
 ---
 
-### Admin panel redesign (threaded through Phases 8–15, not a separate phase)
+### Admin panel redesign (threaded through Phases 9–16, not a separate phase)
 
-By Phase 14 the admin panel needs, beyond what exists today:
-- Kind-agnostic pending queue (Phase 8)
-- Global online-feedback toggle (Phase 13)
-- Session start/end + roster picker (Phase 14)
-- Per-user profile-visibility toggle (Phase 15)
+By Phase 15 the admin panel needs, beyond what exists today:
+- Kind-agnostic pending queue, decorative objects excluded entirely, interactive objects shown as small isolated items (Phase 9, Phase 11)
+- Global online-feedback toggle (Phase 14)
+- Session start/end + roster picker (Phase 15)
+- Per-user profile-visibility toggle (Phase 16)
 
-Worth doing as one redesign pass once Phase 8's generic submission system lands, rather than incrementally bolting UI onto the current two-tab (Rooms/Games) layout.
-
----
-
-## Open Discussion Topics (not yet decided — raised 2026-07-11)
-
-- **World size** — firm up sizing/parameters for the current shared world (town square is 1600×1200 today; rooms are standardised to 1600×1200 per Phase 6B — revisit whether these limits still fit the expanded vision).
-- **Movable objects** — a feature letting players move/rearrange selected objects within their own room after it's been approved (interaction model, whether it needs re-approval, whether it's server-synced or local-only).
+Worth doing as one redesign pass once Phase 9's generic submission system lands, rather than incrementally bolting UI onto the current two-tab (Rooms/Games) layout.
 
 ---
 
