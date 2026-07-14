@@ -4,6 +4,7 @@
 
 import { Server, Room } from 'colyseus';
 import { PlayerState, WorldState } from '../src/shared/schema.js';
+import { PLOTS as PORTAL_SLOTS } from '../src/shared/townSquareLayout.js';
 import express from 'express';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
@@ -23,28 +24,9 @@ const ADMIN_PASSWORD = 'worldofcodes';
 // ── 20 Portal Slot Positions ──────────────────────────────────────────────────
 // These positions are scattered across the 1600×1200 world, avoiding the player
 // spawn area (~800,600) and the notice board (800,750).
-const PORTAL_SLOTS = [
-  { key: 'slot01', x:  350, y:  420, color: 0x8B5CF6 },
-  { key: 'slot02', x:  580, y:  490, color: 0x10B981 },
-  { key: 'slot03', x:  900, y:  380, color: 0xF59E0B },
-  { key: 'slot04', x: 1150, y:  430, color: 0xEC4899 },
-  { key: 'slot05', x: 1360, y:  510, color: 0x3B82F6 },
-  { key: 'slot06', x: 1480, y:  680, color: 0xEF4444 },
-  { key: 'slot07', x: 1300, y:  820, color: 0x14B8A6 },
-  { key: 'slot08', x: 1150, y:  950, color: 0xF97316 },
-  { key: 'slot09', x:  980, y: 1080, color: 0xA855F7 },
-  { key: 'slot10', x:  750, y: 1100, color: 0x06B6D4 },
-  { key: 'slot11', x:  530, y: 1010, color: 0x84CC16 },
-  { key: 'slot12', x:  320, y:  980, color: 0xF97316 },
-  { key: 'slot13', x:  180, y:  820, color: 0x6366F1 },
-  { key: 'slot14', x:  270, y:  650, color: 0xDB2777 },
-  { key: 'slot15', x: 1050, y:  560, color: 0x0EA5E9 },
-  { key: 'slot16', x:  700, y:  440, color: 0xD97706 },
-  { key: 'slot17', x: 1200, y:  700, color: 0x22C55E },
-  { key: 'slot18', x:  450, y:  750, color: 0x7C3AED },
-  { key: 'slot19', x:  640, y:  880, color: 0xEC4899 },
-  { key: 'slot20', x: 1380, y:  350, color: 0x22C55E },
-];
+// PORTAL_SLOTS now comes from the shared, generated town-square layout
+// (src/shared/townSquareLayout.js) — same import the client uses, so the
+// two can never drift out of sync the way the old hand-duplicated arrays did.
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 // slotAssignments: Map<slotKey, { fileName, roomName, claimedBy, gameFileName? }>

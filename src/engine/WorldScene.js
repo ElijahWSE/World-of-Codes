@@ -11,42 +11,19 @@
 import Phaser from 'phaser';
 import { Client } from '@colyseus/sdk';
 import { WorldState } from '../shared/schema.js';
+import {
+  WORLD_W, WORLD_H, CITY_W, CITY_H, CITY_X0, CITY_Y0,
+  HUB_BOUNDS, PLOTS, SPAWN_POINT, STREET_PROPS,
+} from '../shared/townSquareLayout.js';
 
 // ── World Layout Constants ─────────────────────────────────────────────────────
-const WORLD_W        = 1600;
-const WORLD_H        = 1200;
+// WORLD_W/WORLD_H (the full canvas, including the non-walkable backdrop band)
+// and CITY_W/CITY_H/CITY_X0/CITY_Y0 (the walkable city footprint within it)
+// live in shared/townSquareLayout.js — the single source of truth for both
+// this client and the server (server/index.js).
 const SPEED          = 160;
 const PORTAL_RADIUS  = 42;   // trigger distance for entering an active portal
 const CLAIM_RADIUS   = 90;   // trigger distance for showing the claim hint
-
-const MID_X = WORLD_W / 2;  // 800
-const MID_Y = WORLD_H / 2;  // 600
-
-// ── Portal Slot Positions ─────────────────────────────────────────────────────
-// 20 positions scattered across the 1600×1200 world.
-// Must match PORTAL_SLOTS in server/index.js (same keys + coordinates).
-const PORTAL_SLOT_POSITIONS = [
-  { key: 'slot01', x:  350, y:  420, color: 0x8B5CF6 },
-  { key: 'slot02', x:  580, y:  490, color: 0x10B981 },
-  { key: 'slot03', x:  900, y:  380, color: 0xF59E0B },
-  { key: 'slot04', x: 1150, y:  430, color: 0xEC4899 },
-  { key: 'slot05', x: 1360, y:  510, color: 0x3B82F6 },
-  { key: 'slot06', x: 1480, y:  680, color: 0xEF4444 },
-  { key: 'slot07', x: 1300, y:  820, color: 0x14B8A6 },
-  { key: 'slot08', x: 1150, y:  950, color: 0xF97316 },
-  { key: 'slot09', x:  980, y: 1080, color: 0xA855F7 },
-  { key: 'slot10', x:  750, y: 1100, color: 0x06B6D4 },
-  { key: 'slot11', x:  530, y: 1010, color: 0x84CC16 },
-  { key: 'slot12', x:  320, y:  980, color: 0xF97316 },
-  { key: 'slot13', x:  180, y:  820, color: 0x6366F1 },
-  { key: 'slot14', x:  270, y:  650, color: 0xDB2777 },
-  { key: 'slot15', x: 1050, y:  560, color: 0x0EA5E9 },
-  { key: 'slot16', x:  700, y:  440, color: 0xD97706 },
-  { key: 'slot17', x: 1200, y:  700, color: 0x22C55E },
-  { key: 'slot18', x:  450, y:  750, color: 0x7C3AED },
-  { key: 'slot19', x:  640, y:  880, color: 0xEC4899 },
-  { key: 'slot20', x: 1380, y:  350, color: 0x22C55E },
-];
 
 const protocol   = window.location.protocol === 'https:' ? 'wss' : 'ws';
 const SERVER_URL = `${protocol}://${window.location.host}`;
@@ -78,12 +55,14 @@ export default class WorldScene extends Phaser.Scene {
   preload() {}
 
   create() {
-    this._createBackground();
-    this._createMountains();
-    this._createRiver();
-    this._createDecor();
-    this._createSkyAnimations();
+    this._createBackdrop();
+    this._createSkylineBuildings();
+    this._createBackdropClouds();
+    this._createMoonAndStars();
+    this._createCityGround();
+    this._createStreetsAndPlots();
     this._createPlayer();
+    this._createGarden();
     this._createSignpost();
     this._setupCamera();
     this._setupInput();
@@ -137,8 +116,8 @@ export default class WorldScene extends Phaser.Scene {
       this._activeSlots = slots;
     } catch (e) {
       console.error('[WorldScene] Failed to fetch portal slots:', e);
-      // Fall back: show all 20 slots as dim/unclaimed
-      this._activeSlots = PORTAL_SLOT_POSITIONS.map(s => ({ ...s, fileName: null, roomModule: null }));
+      // Fall back: show all plots as dim/unclaimed
+      this._activeSlots = PLOTS.map(s => ({ ...s, fileName: null, roomModule: null }));
     }
 
     // Destroy existing portal objects before redrawing
@@ -249,210 +228,232 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ── Background ────────────────────────────────────────────────────────────
-  _createBackground() {
+  // A big sky wash across the WHOLE canvas, including the backdrop band
+  // beyond the walkable city — this is the "Super Mario background" layer:
+  // it sits behind everything and is visible whenever the camera can see
+  // past the city's edge, giving a sense of a much bigger world beyond
+  // where the player can actually walk.
+  _createBackdrop() {
     const sky = this.add.graphics().setDepth(0);
-    sky.fillGradientStyle(0x5B9ED9, 0x5B9ED9, 0xF4C96A, 0xF4C96A, 1);
-    sky.fillRect(0, 0, WORLD_W, 340);
-    sky.fillGradientStyle(0xF4C96A, 0xF4C96A, 0xD4956A, 0xD4956A, 1);
-    sky.fillRect(0, 290, WORLD_W, 80);
+    sky.fillGradientStyle(0x8FC6EA, 0x8FC6EA, 0xD9EEF9, 0xD9EEF9, 1);
+    sky.fillRect(0, 0, WORLD_W, WORLD_H);
+  }
 
-    const ground = this.add.graphics().setDepth(3);
-    ground.fillStyle(0xD4A96A);
-    ground.fillRect(0, 300, WORLD_W, WORLD_H - 300);
-    ground.fillStyle(0xDCB47A);
-    for (let gx = 0; gx < WORLD_W; gx += 200) {
-      for (let gy = 300; gy < WORLD_H; gy += 200) {
-        if (((gx / 200) + (gy / 200)) % 2 === 0) ground.fillRect(gx, gy, 200, 200);
-      }
+  // Pavement fill for the walkable city footprint only — plots/streets/hub
+  // draw on top of this within CITY_X0..CITY_X0+CITY_W (and the Y
+  // equivalent); any gap left between plots (streets) shows this colour
+  // through, so no separate street polygons are needed.
+  _createCityGround() {
+    const pavement = this.add.graphics().setDepth(1);
+    pavement.fillStyle(0xD9D3C4);
+    pavement.fillRect(CITY_X0, CITY_Y0, CITY_W, CITY_H);
+  }
+
+  // ── Streets & Plots ───────────────────────────────────────────────────────
+  // Draws every plot from the shared, generated town-square layout
+  // (src/shared/townSquareLayout.js) as a filled polygon/triangle. Portals
+  // themselves are drawn separately by _drawPortal(), on top of these, once
+  // slot assignment data comes back from the server.
+  _createStreetsAndPlots() {
+    // Drop shadow under every plot, offset down-right — a cheap way to read
+    // each plot as slightly raised above street level (oblique/"Pokemon"
+    // depth cue) without a full elevation system.
+    const SHADOW_OFFSET = 8;
+    const shadow = this.add.graphics().setDepth(3.2);
+    const gfx = this.add.graphics().setDepth(3.5);
+    for (const plot of PLOTS) {
+      const shadowPts = plot.points.map(([x, y]) => ({ x: x + SHADOW_OFFSET, y: y + SHADOW_OFFSET }));
+      shadow.fillStyle(0x000000, 0.18);
+      shadow.fillPoints(shadowPts, true);
+
+      const pts = plot.points.map(([x, y]) => ({ x, y }));
+      gfx.fillStyle(plot.color, 0.9);
+      gfx.fillPoints(pts, true);
+      gfx.lineStyle(2, 0xFFFFFF, 0.35);
+      gfx.strokePoints(pts, true);
+    }
+    this._createStreetProps();
+  }
+
+  // Small lamp-post props scattered on street/alley ground (never on a plot
+  // or the hub) — scattered vertical elements break up the flat ground plane
+  // for the same oblique-depth reason as the plot shadows above.
+  _createStreetProps() {
+    for (const { x, y } of STREET_PROPS) {
+      const depth = 5 + y / 200;
+      this.add.ellipse(x + 3, y + 4, 22, 10, 0x000000, 0.2).setDepth(depth - 0.01);
+
+      const container = this.add.container(x, y).setDepth(depth);
+      const gfx = this.add.graphics();
+      gfx.fillStyle(0x4A4A55);
+      gfx.fillRect(-4, -46, 8, 46);
+      gfx.fillStyle(0x33333D);
+      gfx.fillRect(-10, -50, 20, 6);
+      gfx.fillStyle(0xFFE28A, 0.9);
+      gfx.fillCircle(0, -50, 9);
+      gfx.fillStyle(0xFFE28A, 0.18);
+      gfx.fillCircle(0, -50, 20);
+      container.add(gfx);
     }
   }
 
-  _createMountains() {
-    const gfx = this.add.graphics().setDepth(2);
-    gfx.fillStyle(0x8090C0);
-    gfx.fillTriangle(80,  370, 300,  80, 520,  370);
-    gfx.fillTriangle(680, 370, 900,  50, 1120, 370);
-    gfx.fillTriangle(1300,370, 1520, 90, 1700, 370);
-    gfx.fillStyle(0x4A5590);
-    gfx.fillTriangle(-20, 370, 190, 130, 400, 370);
-    gfx.fillTriangle(380, 370, 600,  45, 820, 370);
-    gfx.fillTriangle(790, 370, 1010,105, 1230,370);
-    gfx.fillTriangle(1160,370, 1380, 60, 1610,370);
-    gfx.fillStyle(0xEEEEFF);
-    gfx.fillTriangle(162, 185, 190, 130, 218, 185);
-    gfx.fillTriangle(570,  95, 600,  45, 630,  95);
-    gfx.fillTriangle(980, 158, 1010,105, 1040,158);
-    gfx.fillTriangle(1348,112, 1380, 60, 1412,112);
-  }
+  // ── Central Garden ────────────────────────────────────────────────────────
+  // A small plaza garden at the centre of the town square: lawn, trees, and
+  // a fountain. Only the fountain itself is solid — the lawn is walkable.
+  _createGarden() {
+    const { cx, cy, w, h } = HUB_BOUNDS;
+    const halfW = w / 2, halfH = h / 2;
 
-  _createRiver() {
     const gfx = this.add.graphics().setDepth(4);
-    const SEGS = [
-      [130, 220, 68, 150], [130, 340, 185, 68], [272, 340, 68, 195],
-      [200, 503, 175, 68], [200, 503, 68, 215], [200, 685, 178, 68],
-      [340, 685, 68, 210], [340, 863, 155, 68], [458, 863, 68, 215],
-      [458, 1046, 125, 68],
+    gfx.fillStyle(0x8FBC6A);
+    gfx.fillRect(cx - halfW, cy - halfH, w, h);
+    gfx.lineStyle(6, 0x5E8A3A, 0.9);
+    gfx.strokeRect(cx - halfW, cy - halfH, w, h);
+
+    this.add.text(cx, cy - halfH - 26, 'TOWN GARDEN', {
+      fontSize: '16px', fill: '#3d1f00', fontStyle: 'bold', stroke: '#ffffff', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(5);
+
+    // Trees around the lawn, clear of the fountain in the middle
+    const TREE_OFFSETS = [
+      [-halfW + 60, -halfH + 55], [halfW - 60, -halfH + 55],
+      [-halfW + 60, halfH - 55],  [halfW - 60, halfH - 55],
+      [-halfW + 55, 0], [halfW - 55, 0],
+      [0, -halfH + 50], [0, halfH - 50],
     ];
-    gfx.fillStyle(0x4EA8DE);
-    for (const [x, y, w, h] of SEGS) gfx.fillRect(x, y, w, h);
-    gfx.fillStyle(0x82CBF0);
-    for (const [x, y, w, h] of SEGS) {
-      const inset = Math.floor(Math.min(w, h) * 0.22);
-      gfx.fillRect(x + inset, y + inset, w - inset * 2, h - inset * 2);
-    }
+    for (const [ox, oy] of TREE_OFFSETS) this._createTree(cx + ox, cy + oy);
+
+    // Fountain
+    const R = 78;
+    this.add.ellipse(cx + 5, cy + 8, R * 2 + 10, R * 0.9, 0x000000, 0.15).setDepth(4.4);
+    const fgfx = this.add.graphics().setDepth(4.5);
+    fgfx.fillStyle(0xC8BFA6); fgfx.fillCircle(cx, cy, R);
+    fgfx.fillStyle(0x6FB8D9); fgfx.fillCircle(cx, cy, R - 14);
+    fgfx.fillStyle(0x8FD0E8, 0.7); fgfx.fillCircle(cx, cy, R - 30);
+    fgfx.fillStyle(0xB8B09A); fgfx.fillCircle(cx, cy, 16);
+    fgfx.fillStyle(0xEAF6FA, 0.85); fgfx.fillCircle(cx, cy, 7);
+    this.tweens.add({ targets: fgfx, alpha: 0.82, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Solid collider — only the fountain itself blocks movement, not the lawn
+    const hitbox = this.add.rectangle(cx, cy, R * 1.6, R * 1.6, 0x000000, 0);
+    this.physics.add.existing(hitbox, true);
+    this.physics.add.collider(this.player, hitbox);
   }
 
-  _createDecor() {
-    this._placeCacti();
-    this._placeBookSculptures();
+  _createTree(x, y) {
+    const depth = 5 + y / 200;
+    this.add.ellipse(x + 4, y + 6, 34, 14, 0x000000, 0.18).setDepth(depth - 0.01);
+    const container = this.add.container(x, y).setDepth(depth);
+    const gfx = this.add.graphics();
+    gfx.fillStyle(0x6B4A2E);
+    gfx.fillRect(-5, -34, 10, 34);
+    gfx.fillStyle(0x4C9A4C);
+    gfx.fillCircle(0, -46, 22);
+    gfx.fillStyle(0x5CB35C);
+    gfx.fillCircle(-10, -38, 16);
+    gfx.fillCircle(11, -40, 16);
+    container.add(gfx);
   }
 
-  _placeCacti() {
-    const POSITIONS = [
-      [150, 520, 0.9], [390, 660, 1.1], [1300, 480, 1.0],
-      [1460, 830, 0.85], [280, 930, 1.2], [1060, 430, 0.95],
-      [900, 1040, 1.0], [640, 800, 0.75], [1400, 640, 1.05],
+  // ── HDB skyline ───────────────────────────────────────────────────────────
+  // A row of simple flat-fronted building silhouettes lines the inner edge
+  // of the backdrop band on all four sides — like distant blocks visible
+  // just beyond the city you're walking through, never enterable.
+  _createSkylineBuildings() {
+    const PALETTE = [0x9FB4C7, 0x8AA3B8, 0xB0C4D6, 0x7C93A8];
+    const rows = [
+      { axis: 'x', from: CITY_X0, to: CITY_X0 + CITY_W, edge: CITY_Y0, dir: -1 },              // top
+      { axis: 'x', from: CITY_X0, to: CITY_X0 + CITY_W, edge: CITY_Y0 + CITY_H, dir: 1 },      // bottom
+      { axis: 'y', from: CITY_Y0, to: CITY_Y0 + CITY_H, edge: CITY_X0, dir: -1 },              // left
+      { axis: 'y', from: CITY_Y0, to: CITY_Y0 + CITY_H, edge: CITY_X0 + CITY_W, dir: 1 },      // right
     ];
-    for (const [x, y, scale] of POSITIONS) {
-      const container = this.add.container(x, y).setDepth(5 + y / 200);
-      const gfx = this.add.graphics();
-      const tw = Math.round(14 * scale), th = Math.round(68 * scale);
-      const armW = Math.round(30 * scale), armH = Math.round(12 * scale);
-      const armY = -Math.round(40 * scale), upH = Math.round(22 * scale);
-      gfx.fillStyle(0x5A9A3C);
-      gfx.fillRect(-tw / 2, -th, tw, th);
-      gfx.fillRect(-tw / 2 - armW, armY, armW, armH);
-      gfx.fillRect(-tw / 2 - armW, armY - upH, armH, upH);
-      gfx.fillRect(tw / 2, armY, armW, armH);
-      gfx.fillRect(tw / 2 + armW - armH, armY - upH, armH, upH);
-      container.add(gfx);
-    }
-  }
-
-  _placeBookSculptures() {
-    const SCULPTURES = [
-      { x: 420, y: 530, books: [
-        { w: 65, h: 15, color: 0xE63946 }, { w: 52, h: 14, color: 0x457B9D },
-        { w: 72, h: 14, color: 0x2A9D8F }, { w: 46, h: 14, color: 0xE9C46A },
-        { w: 58, h: 13, color: 0xF4A261 },
-      ]},
-      { x: 1190, y: 720, books: [
-        { w: 55, h: 14, color: 0x9B2226 }, { w: 68, h: 15, color: 0x1B4332 },
-        { w: 44, h: 14, color: 0x3A86FF }, { w: 62, h: 14, color: 0xFFBE0B },
-        { w: 50, h: 13, color: 0x8338EC }, { w: 58, h: 14, color: 0xFF6B6B },
-      ]},
-      { x: 760, y: 945, books: [
-        { w: 78, h: 15, color: 0x264653 }, { w: 60, h: 14, color: 0xE76F51 },
-        { w: 70, h: 14, color: 0x2A9D8F }, { w: 54, h: 13, color: 0xF4A261 },
-      ]},
-    ];
-    for (const { x, y, books } of SCULPTURES) {
-      const container = this.add.container(x, y).setDepth(5 + y / 200);
-      const gfx = this.add.graphics();
-      let offsetY = 0;
-      for (const book of books) {
-        gfx.fillStyle(book.color);
-        gfx.fillRect(-book.w / 2, offsetY - book.h, book.w, book.h);
-        offsetY -= book.h;
+    for (const row of rows) {
+      let pos = row.from;
+      while (pos < row.to) {
+        const w = Phaser.Math.Between(90, 180);
+        const h = Phaser.Math.Between(180, 480);
+        const color = Phaser.Utils.Array.GetRandom(PALETTE);
+        this._drawSkylineBuilding(row, pos, w, h, color);
+        pos += w + Phaser.Math.Between(10, 30);
       }
-      const baseW = Math.max(...books.map(b => b.w)) + 20;
-      gfx.fillStyle(0x8B7355);
-      gfx.fillRect(-baseW / 2, 0, baseW, 14);
-      container.add(gfx);
     }
   }
 
-  _createSkyAnimations() {
-    this._createMoon();
-    this._createStars();
-    this._createClouds();
-    this._createLightbulb();
-    this._createPaperAirplane();
-  }
-
-  _createMoon() {
-    const gfx = this.add.graphics().setDepth(1);
-    gfx.fillStyle(0xFFF5CC, 0.35); gfx.fillCircle(1430, 75, 46);
-    gfx.fillStyle(0xFFF5CC);       gfx.fillCircle(1430, 75, 34);
-    gfx.fillStyle(0xEEE5AA, 0.55);
-    gfx.fillCircle(1422, 68, 6); gfx.fillCircle(1438, 82, 4); gfx.fillCircle(1428, 88, 3);
-  }
-
-  _createStars() {
+  _drawSkylineBuilding(row, pos, w, h, color) {
     const gfx = this.add.graphics().setDepth(0.5);
-    gfx.fillStyle(0xFFFFEE);
-    const STATIC = [
-      [120,35],[350,22],[580,48],[830,28],[1070,42],[1290,18],[1490,55],
-      [195,75],[720,65],[1110,80],[1560,38],[460,95],[940,88],[1360,105],
-      [650,32],[1200,58],[300,110],[850,115],[1440,88],
-    ];
-    for (const [x, y] of STATIC) gfx.fillRect(x, y, 3, 3);
-    for (let i = 0; i < 8; i++) {
-      const sg = this.add.graphics().setDepth(0.6);
-      sg.fillStyle(0xFFFFDD); sg.fillRect(0, 0, 4, 4);
-      sg.setPosition(Phaser.Math.Between(100, WORLD_W - 100), Phaser.Math.Between(15, 220));
-      this.tweens.add({
-        targets: sg, alpha: 0.1,
-        duration: Phaser.Math.Between(700, 2200),
-        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        delay: Phaser.Math.Between(0, 2500),
-      });
+    let x, y, bw, bh;
+    if (row.axis === 'x') {
+      bw = w; bh = h; x = pos;
+      y = row.dir < 0 ? row.edge - h : row.edge;
+    } else {
+      bw = h; bh = w; y = pos;
+      x = row.dir < 0 ? row.edge - h : row.edge;
+    }
+    gfx.fillStyle(color, 0.85);
+    gfx.fillRect(x, y, bw, bh);
+    gfx.fillStyle(0xFFFFFF, 0.25);
+    for (let wy = y + 10; wy < y + bh - 10; wy += 14) {
+      for (let wx = x + 10; wx < x + bw - 10; wx += 14) {
+        gfx.fillRect(wx, wy, 8, 8);
+      }
     }
   }
 
-  _createClouds() {
-    const DATA = [
-      { x: 250, y: 110 }, { x: 650, y: 80 }, { x: 1050, y: 125 },
-      { x: 1400, y: 95 }, { x: 900, y: 188 }, { x: 400, y: 202 },
-    ];
-    for (const { x, y } of DATA) {
-      const container = this.add.container(x, y).setDepth(1.5);
+  // ── Backdrop clouds ───────────────────────────────────────────────────────
+  // Big drifting clouds scattered across the backdrop band only — never over
+  // the walkable city — so they read as distant background, not decorations
+  // sitting on the ground.
+  _createBackdropClouds() {
+    for (let i = 0; i < 12; i++) {
+      const side = Phaser.Math.Between(0, 3);
+      let x, y;
+      if (side === 0)      { x = Phaser.Math.Between(0, WORLD_W); y = Phaser.Math.Between(40, CITY_Y0 - 80); }
+      else if (side === 1) { x = Phaser.Math.Between(0, WORLD_W); y = Phaser.Math.Between(CITY_Y0 + CITY_H + 80, WORLD_H - 40); }
+      else if (side === 2) { x = Phaser.Math.Between(40, CITY_X0 - 80); y = Phaser.Math.Between(0, WORLD_H); }
+      else                 { x = Phaser.Math.Between(CITY_X0 + CITY_W + 80, WORLD_W - 40); y = Phaser.Math.Between(0, WORLD_H); }
+
+      const scale = Phaser.Math.FloatBetween(1.4, 2.4);
+      const container = this.add.container(x, y).setDepth(1.2).setScale(scale);
       const gfx = this.add.graphics();
       gfx.fillStyle(0xFFFFFF, 0.92);
       gfx.fillEllipse(-32, 4, 76, 32); gfx.fillEllipse(-8, -12, 58, 40); gfx.fillEllipse(28, 4, 64, 28);
       container.add(gfx);
       this.tweens.add({
-        targets: container, x: x + Phaser.Math.Between(-180, 180),
-        duration: Phaser.Math.Between(14000, 24000),
+        targets: container, x: x + Phaser.Math.Between(-120, 120),
+        duration: Phaser.Math.Between(16000, 26000),
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Phaser.Math.Between(0, 8000),
       });
     }
   }
 
-  _createLightbulb() {
-    const container = this.add.container(800, 130).setDepth(1.8);
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0xFFFF88, 0.15); gfx.fillCircle(0, 0, 70);
-    gfx.fillStyle(0xFFFF88, 0.22); gfx.fillCircle(0, 0, 52);
-    gfx.fillStyle(0xFFEE44);       gfx.fillCircle(0, -4, 22);
-    gfx.fillStyle(0xCCBB33);
-    gfx.fillRect(-8, 14, 16, 8); gfx.fillRect(-5, 22, 10, 5); gfx.fillRect(-5, 27, 10, 4);
-    gfx.lineStyle(2.5, 0xFFEE44, 0.8);
-    for (let angle = 0; angle < 360; angle += 45) {
-      const rad = Phaser.Math.DegToRad(angle);
-      gfx.lineBetween(Math.cos(rad) * 30, Math.sin(rad) * 30 - 4, Math.cos(rad) * 48, Math.sin(rad) * 48 - 4);
+  // ── Moon & stars ──────────────────────────────────────────────────────────
+  // Placed in the top backdrop band only — a fixed "up" for the sky, rather
+  // than floating over the whole map.
+  _createMoonAndStars() {
+    const starGfx = this.add.graphics().setDepth(0.8);
+    starGfx.fillStyle(0xFFFFEE);
+    for (let i = 0; i < 24; i++) {
+      const sx = Phaser.Math.Between(0, WORLD_W), sy = Phaser.Math.Between(20, CITY_Y0 - 100);
+      starGfx.fillRect(sx, sy, 3, 3);
     }
-    container.add(gfx);
-    this.tweens.add({ targets: container, scaleX: 1.14, scaleY: 1.14, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-  }
-
-  _createPaperAirplane() {
-    const container = this.add.container(-60, 140).setDepth(1.9);
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0xFFFFFF);  gfx.fillTriangle(0, 8, 34, 12, 6, 22);
-    gfx.fillStyle(0xDDDDDD);  gfx.fillTriangle(6, 22, 34, 12, 22, 28);
-    gfx.lineStyle(1, 0xBBBBBB, 0.8); gfx.lineBetween(0, 8, 22, 28);
-    container.add(gfx);
-    const fly = () => {
-      const startY = Phaser.Math.Between(70, 260);
-      container.setPosition(-60, startY);
+    for (let i = 0; i < 6; i++) {
+      const sg = this.add.graphics().setDepth(0.9);
+      sg.fillStyle(0xFFFFDD); sg.fillRect(0, 0, 4, 4);
+      sg.setPosition(Phaser.Math.Between(0, WORLD_W), Phaser.Math.Between(20, CITY_Y0 - 100));
       this.tweens.add({
-        targets: container, x: WORLD_W + 80, y: startY + Phaser.Math.Between(-40, 40),
-        duration: Phaser.Math.Between(7000, 11000), ease: 'Linear',
-        onComplete: () => this.time.delayedCall(Phaser.Math.Between(4000, 12000), fly),
+        targets: sg, alpha: 0.1, duration: Phaser.Math.Between(700, 2200),
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Phaser.Math.Between(0, 2500),
       });
-    };
-    this.time.delayedCall(Phaser.Math.Between(2000, 5000), fly);
+    }
+
+    const moonX = CITY_X0 + CITY_W * 0.78, moonY = CITY_Y0 * 0.4;
+    const container = this.add.container(moonX, moonY).setDepth(1).setScale(2.2);
+    const gfx = this.add.graphics();
+    gfx.fillStyle(0xFFF5CC, 0.35); gfx.fillCircle(0, 0, 46);
+    gfx.fillStyle(0xFFF5CC);       gfx.fillCircle(0, 0, 34);
+    gfx.fillStyle(0xEEE5AA, 0.55);
+    gfx.fillCircle(-8, -7, 6); gfx.fillCircle(8, 7, 4); gfx.fillCircle(-2, 13, 3);
+    container.add(gfx);
   }
 
   // ── Player ────────────────────────────────────────────────────────────────
@@ -461,7 +462,8 @@ export default class WorldScene extends Phaser.Scene {
       this.playerName = `Player_${Math.floor(Math.random() * 9000) + 1000}`;
     }
 
-    let spawnX = MID_X, spawnY = MID_Y;
+    // Default spawn is a point near the hub guaranteed clear of every portal's trigger radius
+    let spawnX = SPAWN_POINT.x, spawnY = SPAWN_POINT.y;
     if (this._returnDoor) {
       const slot = this._activeSlots.find(s => s.key === this._returnDoor);
       if (slot) { spawnX = slot.x; spawnY = slot.y + 100; }
@@ -477,8 +479,17 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   _setupCamera() {
-    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+    // Physics bounds are the walkable CITY only — players can't walk into
+    // the backdrop band. Camera bounds are the full WORLD, so the backdrop
+    // (sky/clouds/skyline) is still visible whenever the player is near the
+    // city's edge, the same way Mario's background is visible but not walkable.
+    this.physics.world.setBounds(CITY_X0, CITY_Y0, CITY_W, CITY_H);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    // Zoomed out from the default 1.0 so more of the town square is visible
+    // at once, without touching the base canvas size — the canvas itself is
+    // left alone because RoomScene's mini-game overlay and existing approved
+    // student mini-games hardcode coordinates against it.
+    this.cameras.main.setZoom(0.7);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
   }
 
@@ -790,7 +801,8 @@ export default class WorldScene extends Phaser.Scene {
 
   // ── Signpost ───────────────────────────────────────────────────────────────
   _createSignpost() {
-    const sx = MID_X, sy = MID_Y + 150;
+    // Placed beside the hub (not south of it, where the player spawns)
+    const sx = HUB_BOUNDS.cx + HUB_BOUNDS.w / 2 + 150, sy = HUB_BOUNDS.cy;
 
     this.add.rectangle(sx, sy + 14, 8, 48, 0x5c3a1e).setDepth(8);
     this.add.rectangle(sx, sy - 6, 80, 44, 0x7a5230).setDepth(8);

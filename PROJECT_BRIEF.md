@@ -12,7 +12,7 @@ There is a **shared town square** where all players can walk around and see each
 
 Beyond sharing and trying out creations, the platform is meant to encourage players to document their creative process, give and receive feedback, and optionally share their code so others can remix it. A public profile page gives each player an overview of everything they've made, without needing to walk the world to find it.
 
-**Current status:** Phases 1–7 are complete and live (see "Full Original Plan" below). Phase 8 (town square redesign + levels) is next — it has no dependency on auth, so it's the starting point rather than Phase 9 (auth + generalized submission system, previously numbered Phase 8). World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
+**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades). Phase 9 (auth + generalized submission system) is next up. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
 
 ---
 
@@ -542,17 +542,24 @@ Club Penguin–style mini-game overlay:
 
 ---
 
-### PHASE 8 — TOWN SQUARE REDESIGN + LEVELS (PLANNED, new, decided 2026-07-14)
+### PHASE 8 — TOWN SQUARE REDESIGN + LEVELS (core redesign ✅ COMPLETE 2026-07-14, levels still PLANNED)
 
-Goal: replace the current desert-themed town square with a Singapore-themed hub sized for the platform's growth, plus a mechanism for expanding further without repeatedly resizing the same map. Has no dependency on auth, so it's the starting point rather than Phase 9.
+Goal: replace the desert-themed town square with a Singapore-themed hub sized for the platform's growth, plus a mechanism for expanding further without repeatedly resizing the same map. Has no dependency on auth, so it ran before Phase 9.
 
-- **World size:** the shared town square grows from 1600×1200 to **3600×2700** (5× area, same 4:3 aspect ratio — a 2.25× scale per dimension). Player room size stays 1600×1200 — this resize only affects the shared hub.
-- **Theme:** local Singapore — a central hub building styled like a community club, surrounded by a grid of streets. Portals sit on land plots along the streets instead of being scattered organically as they are today.
-- **Non-uniform plots:** plot sizes vary (Singapore land-parcel style) rather than a strict lattice; a handful of corner plots are triangular where streets meet at an angle. Target roughly **60–90 plots** for this level (up from today's 20) — a design budget, not a hard requirement.
-- **Build approach:** lay out streets/hub/plots as data (a list of shapes — rectangle, triangle, or polygon — each with an id and a "door" trigger point) rather than one-off hardcoded pixel positions, so a future resize or redesign is "update the data" rather than "manually re-place every element." Extract the client/server duplicated portal-position data (`PORTAL_SLOT_POSITIONS` in `WorldScene.js` vs. `PORTAL_SLOTS` in `server/index.js`, today synced only by a comment) into one shared file as part of this work.
-- **Design workflow:** layout designed visually on claude.ai (sketch/iterate, then export as structured coordinate JSON), then wired into the game — not designed directly in code.
-- **Levels, not further resizing:** future growth is handled by adding levels — a lift at the central hub takes players to a separate town-square instance (its own theme, its own plots) — rather than repeatedly widening the same map. Reuses the mechanism already proven for entering player rooms (`scene.launch()` + `scene.sleep()`, `currentRoom` tracked in shared schema — no new Colyseus connection per level). Build `WorldScene` as a reusable "hub scene" class parameterized by theme + portal set now, so adding a level later means writing a new theme config, not rewriting the engine.
-- **Deferred:** letting players redesign their own portal's visual facade (a themed building/door instead of a generic glowing circle) — a future idea, not built now; likely fits as another creation-kind once the Phase 9 registry exists.
+**Built and live:**
+- **New shared file `src/shared/townSquareLayout.js`** — a seeded, deterministic procedural generator (not hand-authored data) that is the single source of truth for the whole layout, imported by both `server/index.js` and `WorldScene.js` so client/server portal positions can never drift out of sync (replaces the old hand-duplicated `PORTAL_SLOT_POSITIONS`/`PORTAL_SLOTS` arrays).
+- **World size:** the walkable **city** is 3600×2700 (the originally planned 5× area), unchanged from the first pass. It now sits inside a bigger **5000×4100 total canvas** — the extra space is a 700px non-walkable backdrop band on all four sides (see below). Player room size stays 1600×1200, untouched.
+- **Layout — revised from the original plan after live playtesting feedback:** the original radial "streets radiating from the hub in wedges" design produced awkward thin slivers near the centre no matter how the subdivision was tuned. Replaced with a **true rectangular street grid** (12×9 base cells, randomly merged into 1×1 / 2×1 / 1×2 / 2×2 blocks for size variation) — 74 plots currently, all rectangular. Triangular plots were tried and then explicitly dropped per owner feedback ("pose a lot of issues... do not resemble any realistic use of space"). There is no alley/street distinction anymore either — every gap in the grid, big block or small, uses the same ~110px road width (also dropped per feedback, in favour of simplicity and visual consistency).
+- **Hub — revised from "community club building" to a Town Garden:** lawn, 8 trees, and an animated fountain (only the fountain itself is a solid obstacle; the lawn is walkable) — the building version read poorly once built, per owner feedback.
+- **Backdrop band (new, not in the original plan):** a nonwalkable 700px band surrounds the city on all sides — sky gradient, drifting clouds, moon, stars, and a muted-tone HDB skyline silhouette lining the inner edge of the band on all four sides. Player movement is physically confined to the city (`physics.world.setBounds` on the city rect only); the camera bounds cover the full canvas so the backdrop is visible whenever the player is near the city's edge — a "Mario-style" background layer, added after owner feedback that floating sky decor directly over the ground read as a bug, not depth.
+- **Camera zoomed to 0.7×** in `WorldScene._setupCamera()` so more of the city is visible at once, without changing the base 800×600 canvas (that canvas size is part of the existing mini-game contract — student-submitted games hardcode coordinates against it, so it was deliberately left alone).
+- **Design workflow actually used:** owner supplied a reference layout image; the final layout was generated procedurally (not hand-traced from the image) once it became clear a real city grid needed to be code-generated for correctness (guaranteed non-overlapping, in-bounds, backward-compatible with existing claimed slot keys) rather than manually authored.
+- Verified: all 13 previously-claimed student rooms resolve correctly against the new layout (no orphaned rooms); zero console errors; visually confirmed in-browser via automated screenshots.
+
+**Still planned, not built this pass:**
+- **Levels** — a lift at the hub to a separate town-square instance for future growth, instead of resizing the map again. Not started.
+- **Reusable "hub scene" class** — `WorldScene` is still one concrete file, not yet refactored into a theme-configurable base class for levels to reuse.
+- **Portal facade customization** (players redesigning their own portal's visual appearance) — still deferred, likely a future creation-kind once the Phase 9 registry exists.
 
 ---
 
