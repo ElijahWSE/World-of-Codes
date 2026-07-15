@@ -16,6 +16,7 @@
     "colyseus": "^0.17.8",
     "concurrently": "^9.2.1",
     "express": "^5.2.1",
+    "firebase": "^12.16.0",
     "phaser": "^3.87.0"
   },
   "devDependencies": {

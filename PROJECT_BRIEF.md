@@ -12,7 +12,7 @@ There is a **shared town square** where all players can walk around and see each
 
 Beyond sharing and trying out creations, the platform is meant to encourage players to document their creative process, give and receive feedback, and optionally share their code so others can remix it. A public profile page gives each player an overview of everything they've made, without needing to walk the world to find it.
 
-**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades). Phase 9 (auth + generalized submission system) is next up. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
+**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades, stepped terrain). Phase 9 (auth + generalized submission system) is next up, split into sequential sub-phases **9A (Auth)** and **9B (Generalized submission system)** — see Phase 9 below. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
 
 ---
 
@@ -560,26 +560,64 @@ Goal: replace the desert-themed town square with a Singapore-themed hub sized fo
 - **Levels** — a lift at the hub to a separate town-square instance for future growth, instead of resizing the map again. Not started.
 - **Reusable "hub scene" class** — `WorldScene` is still one concrete file, not yet refactored into a theme-configurable base class for levels to reuse.
 - **Portal facade customization** (players redesigning their own portal's visual appearance) — still deferred, likely a future creation-kind once the Phase 9 registry exists.
+- **Stepped/elevation terrain** (added 2026-07-15) — Pokemon-style stepped ground gradients (small climbable/jumpable ledges: one-way hop down, blocked walk-up except via stairs) for the main world, and possibly participant rooms later. Not started, not spec'd. Grouped with Levels/hub-refactor because it's an engine-level movement/collision primitive that's a natural fit to build alongside the `WorldScene` hub-scene refactor rather than on its own. If ever extended to participant rooms, it would change the room contract (`_template.js`) itself, which is riskier than an additive feature since 13 existing rooms are built against flat, uniform ground — needs real design work before touching that.
 
 ---
 
-### PHASE 9 — FOUNDATION: AUTH + GENERALIZED SUBMISSION SYSTEM (PLANNED, revised)
+### PHASE 9 — FOUNDATION: AUTH + GENERALIZED SUBMISSION SYSTEM (PLANNED, split into 9A/9B 2026-07-15)
 
 Goal: everything from the original auth plan (Google Auth, Firestore, auto slot assignment), **plus** replacing today's duplicated room/game admin pipeline with one generic, kind-aware system — because Phase 11 adds music and objects as new kinds, and more kinds are expected later. Without this, `RoomLoader.js`/`GameLoader.js` and the server's separate `pendingSubmissions`/`pendingGames` maps would get copy-pasted a third and fourth time.
 
-**Auth (unchanged from original plan):**
-- `src/auth/firebase.js`, `googleAuth.js`, `session.js` — Firebase init, `signInWithGoogle()`/`signOut()`/`onAuthStateChanged()`, session singleton `{ uid, displayName, photoURL, slotKey, idToken }`
-- `src/engine/LoginScene.js` — first Phaser scene, Google Sign-In button, routes to CharacterScene or WorldScene
-- `server/index.js` — Firebase Admin SDK, `POST /api/auth/verify` (verify token + auto-assign slot), `GET /api/character/:uid`
-- `src/shared/schema.js` — add `uid` field to `PlayerState`; `server/data/slots.json` gains `uid` per entry
-- New dependencies: `firebase` (client), `firebase-admin` (server)
+**Decision (2026-07-15):** built as two sequential sub-phases, 9A then 9B, not simultaneously — full implementation plan approved and saved at `/home/node/.claude/plans/steady-purring-wozniak.md`. Auth (9A) touches `main.js`, `WorldScene.js`, `schema.js`, `WorldRoom.onJoin` — none of which overlap with the submission pipeline (9B) — so building 9A first means the `kind`-aware registry is designed with a real `uid` as a first-class field from day one instead of being retrofitted later, and each sub-phase ships as an independently testable, revertable slice.
 
-**Generalized submission system (new — replaces the current dual pipeline):**
-- Server: one `submissions` collection with a `kind` field, instead of separate `pendingSubmissions`/`pendingGames`. One set of endpoints: `POST /api/submit`, `GET /admin/pending`, `GET /admin/pending/:id/code`, `POST /admin/approve`, `POST /admin/reject` — all parameterized by `kind`.
-- A small kind registry (`src/creation-kinds/*.js`) — each kind declares its required hooks/contract, validator, and loader. `room` and `game` migrate into this registry as the first two kinds; `music` and `object` (Phase 11) become the third and fourth without touching the pipeline itself. Objects have two sub-types within the `object` kind: **decorative** (schema-validated data, no code) and **interactive** (real code, human-reviewed like rooms, but submitted and reviewed as its own isolated unit — never bundled with or requiring resubmission of the room it belongs to). The registry's validator per kind can branch on sub-type, so decorative submissions skip the admin queue entirely while interactive ones enter it as small, separate items.
-- Admin panel: pending queue becomes kind-agnostic (filter by kind instead of hardcoded Rooms/Games tabs), with decorative-object submissions never appearing in it at all.
+Today there is **zero identity or database infrastructure in the repo**: player identity is a random `Player_XXXX` string regenerated every page load; "claiming" a portal is just typing a name with no verification; submissions live in two hand-duplicated in-memory `Map`s lost on server restart; and there are three separate copies of room/game validation rules (server regex, client loaders, and a third inside `admin.html`'s preview UI). This plan replaces all of that, while explicitly not touching the one mechanism that already works well: approved code is written to `src/rooms/*.js` and dynamically `import()`ed client-side with no server restart.
 
-**Firestore model (expanded):**
+#### 9A — Auth
+
+**New client files:**
+- `src/auth/firebase.js` — Firebase app init from `import.meta.env.VITE_FIREBASE_*` vars, exports `auth`.
+- `src/auth/googleAuth.js` — `signInWithGoogle()` / `signOutUser()` via `GoogleAuthProvider` + `signInWithPopup`.
+- `src/auth/session.js` — singleton `{uid, displayName, photoURL, slotKey, idToken}`, subscribes to `onAuthStateChanged`, exposes `getFreshIdToken()` (ID tokens expire hourly, a play session can outlast that).
+- `src/engine/LoginScene.js` — Google Sign-In overlay (same DOM-overlay pattern as the existing claim overlay), POSTs the ID token to `/api/auth/verify`, then `scene.start('WorldScene', {uid, displayName, photoURL})`. Routes straight to `WorldScene` for now — `CharacterScene` (Phase 10) doesn't exist yet, leave a `// TODO Phase 10` marker at the routing point.
+
+**Modified:**
+- `src/engine/main.js` — scene order becomes `[LoginScene, WorldScene, RoomScene, GameScene]`.
+- `src/engine/WorldScene.js` — `init(data)` receives `{uid, displayName, photoURL}` instead of generating `Player_XXXX`; `_connectMultiplayer()` passes `{name, uid, idToken}` into `joinOrCreate`.
+- `src/shared/schema.js` — add `uid: 'string'` to `PlayerState` (constructor + `defineTypes`). The only schema change in all of Phase 9.
+- `server/index.js` — init `firebase-admin`; add `POST /api/auth/verify` (verifies token, upserts `users/{uid}` in Firestore, returns existing `slotKey` if any) and a stub `GET /api/character/:uid` (real logic is Phase 10); make `WorldRoom.onJoin` async and verify `options.idToken` server-side before trusting `options.uid` — the one real trust boundary, since `uid` is broadcast to every client via `PlayerState`.
+- New deps: `firebase` (client), `firebase-admin` + `dotenv` (server). Service account loaded from an env var, never committed as a JSON file.
+
+**Setup gotcha:** Firebase's Google provider requires the sign-in origin in "Authorized domains." Codespaces forwards Vite on a per-instance HTTPS subdomain that can change on rebuild — handle this as an M0 step rather than hitting `auth/unauthorized-domain` mid-testing.
+
+**M0 status (2026-07-15):** Firebase project (`impactground`) created, Google Sign-In enabled, Firestore created (`asia-southeast1`, Standard edition), web app registered, Codespaces domain authorized. Client env vars and the service account are stored as **GitHub Codespaces secrets** (account-level, scoped to this repo) rather than local `.env`/`serviceAccountKey.json` files — this survives Codespace deletion/recreation and matches the Phase 17 "service account from env var" pattern early, avoiding a rewrite later. Secrets added: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`.
+
+**Pending verification (do this after next Codespace restart/rebuild, before continuing M1):** the secrets were added while this Codespace was already running, so they won't appear until it's stopped/restarted or rebuilt. Once restarted, run this in a terminal to confirm all 7 landed (prints SET/unset per var, without ever printing the actual secret values):
+```bash
+for v in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID \
+         VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID \
+         FIREBASE_SERVICE_ACCOUNT_JSON; do
+  echo "$v: ${!v:+SET}"
+done
+```
+If all 7 print `SET`, tell me and I'll: (1) update `server/index.js` to load the service account via `JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)` instead of the file, (2) delete the now-redundant `server/serviceAccountKey.json` and local `.env` (keep `.env.example` committed as documentation), (3) start M1 proper (schema `uid` field, `LoginScene`, `/api/auth/verify`).
+
+#### 9B — Generalized submission system
+
+**New files:**
+- `src/creation-kinds/room.js`, `game.js` — each declares `{kind, hooks, validate(code), fileNameFor(...), targetDir}`, wrapping today's `validateRoomCode`/`validateGameCode` and the two loaders' hook lists.
+- `src/creation-kinds/index.js` — registry (`getKind(name)`), so Phase 11's `music`/`object` become "add one file + one line."
+
+**Modified:**
+- `src/room-loader/RoomLoader.js` / `GameLoader.js` — import hook contracts from the registry instead of duplicating them.
+- `server/index.js` — one `submissions` Map (`{id, kind, slotKey, uid, displayName, code, submittedAt, isUpdate}`) replaces `pendingSubmissions`/`pendingGames`; 10 endpoints collapse to 5: `POST /api/submit`, `GET /admin/pending(?kind=)`, `GET /admin/pending/:id/code`, `POST /admin/approve`, `POST /admin/reject`. `/admin/remove-room` and `/admin/assign-room` stay as-is — slot-management tools, not part of this generalization.
+- `admin.html` — one Pending tab with a kind filter replaces the two hardcoded tabs; the third hand-duplicated validator (client-side "Validate Code" preview JS) is deleted and routed through the server's existing `/admin/validate` with a `kind` param.
+- `WorldScene.js` `_submitClaim()`, `RoomScene.js` `_submitGameCode()`, `admin.html`'s own game-submit form — all three POST call-sites update to `/api/submit` with `{kind: ...}`.
+
+**Legacy linking:** the 13 already-approved rooms stay uid-less indefinitely, no forced migration — every read site treats a missing `uid` as `null`, purely additive. New admin action `POST /admin/link-owner {password, slotKey, uid}` sets `slotAssignments[slotKey].uid` directly, no re-validation, for when an original creator signs in and identifies themselves. Once linked, the admin pending-queue UI shows a soft, non-blocking indicator if a new submission's `uid` doesn't match — an improvement over today's zero-check model, not a new restriction.
+
+**Firestore scope decision:** introduce Firestore now, but only for `users/{uid}` (`displayName/email/photoURL/slotKey`), server-only via the Admin SDK — no client-side security-rules surface needed yet. The full expanded model below (`creations/{id}` with versions/remixedFrom/processLog/linkedArtifacts, `objects/{id}`, `feedback/{id}`, `sessions/{id}`) is Phase 11+ territory and deliberately NOT built now — none of those fields have a reader/writer yet, so standing them up early would mean running two parallel sources of truth (a Firestore doc *and* the existing `src/rooms/*.js` file) before necessary. 9B instead extends the already-proven `slotAssignments`/`slots.json` pattern with a `uid` field; Phase 11's eventual migration to `creations/{id}` is a well-scoped one-time move of ~74 slot entries.
+
+**Firestore model (target shape for Phase 11+, not built in 9B):**
 ```
 users/{uid}       → { displayName, email, photoURL, slotKey, characterConfig, profileVisible }
 creations/{id}    → { uid, kind, slotKey, name, code,
@@ -596,7 +634,13 @@ feedback/{id}     → { creationId, source: 'online'|'self-recorded',
 sessions/{id}     → { hostUid, roster: [uid], startedAt, endedAt, status }
 ```
 
-Why this ordering: Phase 8 (town square) has no such dependency and can run first. From here on, auth must exist before anything can be attributed to a player (feedback, remixing, profiles all need a stable `uid`). The generic submission system must exist before Phase 11 adds more kinds, or the duplication debt compounds.
+**Milestones (each leaves the app in a working, testable state):**
+- **M0 — Setup, no behavior change:** Firebase project + Google provider enabled, Codespaces domain authorized, service account issued, deps installed, env vars in place.
+- **M1 — Auth live (9A):** `LoginScene` gates world entry, real `uid`/`displayName` flow into `PlayerState`, server verifies tokens, `users/{uid}` upserts in Firestore. Submission pipeline untouched.
+- **M2 — Pipeline generalized (9B):** registry + 5 unified endpoints replace the dual pipeline; `admin.html` becomes kind-agnostic; the three submit call-sites updated.
+- **M3 — Ownership tightens (9B):** new claims always carry a verified `uid`; `link-owner` action available for the 13 legacy slots; mismatch indicator live in the admin queue.
+
+Why this ordering: Phase 8 (town square) has no such dependency and ran first. From here on, auth must exist before anything can be attributed to a player (feedback, remixing, profiles all need a stable `uid`). The generic submission system must exist before Phase 11 adds more kinds, or the duplication debt compounds.
 
 ---
 
