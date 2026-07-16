@@ -16,9 +16,13 @@
 //   2. Import it in WorldScene.js and add it to the DOORS array
 //   That's it. No other files need to change.
 
-// The exact hooks every room module must export.
-// NEVER change these names — players generate code against this contract.
-const REQUIRED_HOOKS = ['name', 'onLoad', 'onCreate', 'onUpdate', 'onExit'];
+import { getKind } from '../creation-kinds/index.js';
+
+// The exact hooks every room module must export, from the shared creation-kind
+// registry (src/creation-kinds/room.js) — the same contract the server
+// validates at submission time. NEVER change these names — players generate
+// code against this contract.
+const { hooks: REQUIRED_HOOKS } = getKind('room');
 
 /**
  * Validates that a room module exports all required hooks with correct types.
@@ -29,19 +33,13 @@ const REQUIRED_HOOKS = ['name', 'onLoad', 'onCreate', 'onUpdate', 'onExit'];
 export function validateRoom(roomModule) {
   const errors = [];
 
-  for (const hook of REQUIRED_HOOKS) {
+  for (const { name: hook, type } of REQUIRED_HOOKS) {
     if (!(hook in roomModule)) {
       errors.push(`Missing export: "${hook}"`);
       continue;
     }
-    if (hook === 'name') {
-      if (typeof roomModule.name !== 'string') {
-        errors.push(`"name" must be a string, got ${typeof roomModule.name}`);
-      }
-    } else {
-      if (typeof roomModule[hook] !== 'function') {
-        errors.push(`"${hook}" must be a function, got ${typeof roomModule[hook]}`);
-      }
+    if (typeof roomModule[hook] !== type) {
+      errors.push(`"${hook}" must be a ${type}, got ${typeof roomModule[hook]}`);
     }
   }
 

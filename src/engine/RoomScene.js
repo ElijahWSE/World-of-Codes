@@ -28,6 +28,7 @@ export default class RoomScene extends Phaser.Scene {
     this._roomModule    = data?.room          ?? null;
     this._returnDoor    = data?.returnDoor    ?? null;
     this._playerName    = data?.playerName    ?? 'You';
+    this._playerUid     = data?.playerUid     ?? null;
     this._colyseusRoom  = data?.colyseusRoom  ?? null;
     this._roomKey       = data?.roomKey       ?? null;
     this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
@@ -388,12 +389,14 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
 
     try {
-      const res  = await fetch('/api/submit-game', {
+      const res  = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          kind:        'game',
           slotKey:     this._roomKey,
-          submittedBy: name,
+          displayName: name,
+          uid:         this._playerUid ?? null,
           sessionId:   this._colyseusRoom?.sessionId ?? null,
           code,
         }),

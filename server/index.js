@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { tmpdir } from 'os';
 import admin from 'firebase-admin';
+import { getKind } from '../src/creation-kinds/index.js';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ROOT       = join(__dirname, '..');
@@ -38,11 +39,12 @@ const db = admin.firestore();
 // two can never drift out of sync the way the old hand-duplicated arrays did.
 
 // ── In-memory state ───────────────────────────────────────────────────────────
-// slotAssignments: Map<slotKey, { fileName, roomName, claimedBy, gameFileName? }>
-const slotAssignments   = new Map();
-const pendingSubmissions = new Map(); // id → PendingSubmission
-const pendingGames       = new Map(); // id → PendingGame
-let   worldRoomInstance  = null;      // set in WorldRoom.onCreate()
+// slotAssignments: Map<slotKey, { fileName, roomName, claimedBy, uid?, gameFileName? }>
+const slotAssignments  = new Map();
+// submissions: Map<id, { id, kind, slotKey, uid, displayName, sessionId, code, submittedAt, isUpdate }>
+// One queue for every creation kind — see src/creation-kinds/*.js for what a kind declares.
+const submissions       = new Map();
+let   worldRoomInstance = null; // set in WorldRoom.onCreate()
 
 // Load persisted slot assignments on startup
 if (existsSync(SLOTS_FILE)) {
@@ -109,37 +111,12 @@ function checkSyntax(code) {
   }
 }
 
-function validateRoomCode(code) {
-  const errors = [];
-  if (/<(?:div|span|p|h[1-6]|ul|li|button|input|form)\b/i.test(code) || /className\s*=/.test(code))
-    errors.push('Contains JSX or HTML tags');
-  if (/^\s*import\s+/m.test(code) || /require\s*\(/.test(code))
-    errors.push('Contains import or require statements');
-  if (!/export\s+const\s+name\s*=/.test(code))
-    errors.push('Missing: export const name');
-  if (!/export\s+(function\s+onLoad|const\s+onLoad\s*=)/.test(code))
-    errors.push('Missing: export function onLoad');
-  if (!/export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(code))
-    errors.push('Missing: export function onCreate');
-  if (!/export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(code))
-    errors.push('Missing: export function onUpdate');
-  if (!/export\s+(function\s+onExit|const\s+onExit\s*=)/.test(code))
-    errors.push('Missing: export function onExit');
-  const syntaxErr = checkSyntax(code);
-  if (syntaxErr) errors.push(`Syntax error: ${syntaxErr}`);
-  return errors;
-}
-
-function validateGameCode(code) {
-  const errors = [];
-  if (/^\s*import\s+/m.test(code) || /require\s*\(/.test(code))
-    errors.push('Contains import or require statements');
-  if (!/export\s+const\s+game\s*=/.test(code))
-    errors.push('Missing: export const game');
-  if (!/gameName/.test(code))   errors.push('Missing: game.gameName');
-  if (!/onGameCreate/.test(code)) errors.push('Missing: game.onGameCreate');
-  if (!/onGameUpdate/.test(code)) errors.push('Missing: game.onGameUpdate');
-  if (!/onGameExit/.test(code))   errors.push('Missing: game.onGameExit');
+// Validates code against a creation kind's structural rules plus a real
+// `node --check` syntax pass. The one real validator — used by /api/submit,
+// /admin/validate, and /admin/assign-room alike.
+function validateCode(kindName, code) {
+  const kindMod = getKind(kindName);
+  const errors  = kindMod.validate(code);
   const syntaxErr = checkSyntax(code);
   if (syntaxErr) errors.push(`Syntax error: ${syntaxErr}`);
   return errors;
@@ -235,12 +212,15 @@ const gameServer = new Server({
       res.sendFile(ADMIN_HTML);
     });
 
-    // Code syntax check — no password, write-nothing
+    // Code validation preview — no password, write-nothing. Same validator
+    // /api/submit uses, so this preview never disagrees with the real gate.
     app.post('/admin/validate', (req, res) => {
-      const { code } = req.body ?? {};
+      const { code, kind } = req.body ?? {};
       if (!code?.trim()) return res.status(400).json({ error: 'No code provided' });
-      const syntaxError = checkSyntax(code);
-      res.json({ ok: !syntaxError, syntaxError: syntaxError || null });
+      let errors;
+      try { errors = validateCode(kind ?? 'room', code); }
+      catch { return res.status(400).json({ error: 'Invalid creation kind' }); }
+      res.json({ ok: errors.length === 0, errors });
     });
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -270,163 +250,117 @@ const gameServer = new Server({
       res.json({ characterConfig: null });
     });
 
-    // Player submits room code from in-game claim overlay
-    app.post('/api/submit-room', (req, res) => {
-      const { slotKey, playerName, sessionId, code } = req.body ?? {};
+    // Unified submission endpoint for every creation kind (room, game, and
+    // whatever Phase 11 adds). One queue, one validator, one file-write path.
+    app.post('/api/submit', (req, res) => {
+      const { kind, slotKey, displayName, uid, sessionId, code } = req.body ?? {};
+      let kindMod;
+      try { kindMod = getKind(kind); } catch { return res.status(400).json({ error: 'Invalid creation kind' }); }
       if (!PORTAL_SLOTS.find(s => s.key === slotKey))
         return res.status(400).json({ error: 'Invalid slot' });
-      if (!playerName?.trim())
-        return res.status(400).json({ error: 'Player name required' });
+      if (!displayName?.trim())
+        return res.status(400).json({ error: 'Name required' });
       if (!code?.trim())
-        return res.status(400).json({ error: 'Room code required' });
-      const isUpdate = slotAssignments.has(slotKey);
-      for (const sub of pendingSubmissions.values()) {
-        if (sub.slotKey === slotKey)
-          return res.status(400).json({ error: 'That portal already has a pending submission. Please wait for the current one to be reviewed.' });
-      }
-      const errors = validateRoomCode(code);
-      if (errors.length > 0)
-        return res.status(400).json({ errors });
-      const id = `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      pendingSubmissions.set(id, {
-        id, slotKey, playerName: playerName.trim(),
-        sessionId: sessionId ?? null, code, submittedAt: Date.now(), isUpdate,
-      });
-      console.log(`[Submit] Room ${isUpdate ? 'update' : 'claim'} from "${playerName}" for slot ${slotKey}`);
-      const message = isUpdate
-        ? 'Update submitted! The admin will review your updated world soon.'
-        : 'Submitted! The admin will review your world soon.';
-      res.json({ ok: true, message });
-    });
-
-    // Submit game code for a slot (players in-game or admin panel)
-    app.post('/api/submit-game', (req, res) => {
-      const { slotKey, submittedBy, sessionId, code } = req.body ?? {};
-      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
-        return res.status(400).json({ error: 'Invalid slot' });
-      if (!slotAssignments.has(slotKey))
+        return res.status(400).json({ error: 'Code required' });
+      if (kind === 'game' && !slotAssignments.has(slotKey))
         return res.status(400).json({ error: 'No room approved for that slot yet' });
-      if (!code?.trim())
-        return res.status(400).json({ error: 'Game code required' });
-      for (const g of pendingGames.values()) {
-        if (g.slotKey === slotKey)
-          return res.status(400).json({ error: 'That slot already has a pending game submission. Please wait for the current one to be reviewed.' });
+      for (const sub of submissions.values()) {
+        if (sub.slotKey === slotKey && sub.kind === kind)
+          return res.status(400).json({ error: 'That slot already has a pending submission of this kind. Please wait for the current one to be reviewed.' });
       }
-      const errors = validateGameCode(code);
-      if (errors.length > 0)
-        return res.status(400).json({ errors });
-      const isUpdate = !!(slotAssignments.get(slotKey)?.gameFileName);
-      const id = `game_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      pendingGames.set(id, {
-        id, slotKey, submittedBy: submittedBy ?? 'admin',
+      const errors = validateCode(kind, code);
+      if (errors.length > 0) return res.status(400).json({ errors });
+
+      const isUpdate = kind === 'room'
+        ? slotAssignments.has(slotKey)
+        : !!(slotAssignments.get(slotKey)?.gameFileName);
+      const id = `${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      submissions.set(id, {
+        id, kind, slotKey, uid: uid ?? null, displayName: displayName.trim(),
         sessionId: sessionId ?? null, code, submittedAt: Date.now(), isUpdate,
       });
-      console.log(`[Submit] Game ${isUpdate ? 'update' : 'new'} for slot ${slotKey}`);
+      console.log(`[Submit] ${kind} ${isUpdate ? 'update' : 'new'} from "${displayName}" for slot ${slotKey}`);
       const message = isUpdate
-        ? 'Game update submitted! The admin will review and replace the current game.'
-        : 'Game submitted for review.';
+        ? 'Update submitted! The admin will review it soon.'
+        : 'Submitted! The admin will review it soon.';
       res.json({ ok: true, message });
     });
 
     // ── Admin: list pending ────────────────────────────────────────────────────
-    app.get('/admin/pending-rooms', (req, res) => {
+    app.get('/admin/pending', (req, res) => {
       if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      res.json([...pendingSubmissions.values()].map(s => ({
-        ...s, codePreview: s.code.slice(0, 300), code: undefined,
-      })));
-    });
-
-    app.get('/admin/pending-games', (req, res) => {
-      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      res.json([...pendingGames.values()].map(g => ({
-        ...g, codePreview: g.code.slice(0, 300), code: undefined,
-      })));
+      const kindFilter = req.query.kind;
+      const list = [...submissions.values()].filter(s => !kindFilter || s.kind === kindFilter);
+      res.json(list.map(s => {
+        const linkedUid    = slotAssignments.get(s.slotKey)?.uid;
+        const ownerMismatch = !!(linkedUid && s.uid && linkedUid !== s.uid);
+        return { ...s, codePreview: s.code.slice(0, 300), code: undefined, ownerMismatch };
+      }));
     });
 
     // Full code for a specific submission (admin review)
-    app.get('/admin/pending-rooms/:id/code', (req, res) => {
+    app.get('/admin/pending/:id/code', (req, res) => {
       if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const sub = pendingSubmissions.get(req.params.id);
+      const sub = submissions.get(req.params.id);
       if (!sub) return res.status(404).json({ error: 'Not found' });
       res.json({ code: sub.code });
     });
 
-    app.get('/admin/pending-games/:id/code', (req, res) => {
-      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const g = pendingGames.get(req.params.id);
-      if (!g) return res.status(404).json({ error: 'Not found' });
-      res.json({ code: g.code });
-    });
-
     // ── Admin: approve / reject ────────────────────────────────────────────────
-    app.post('/admin/approve-room', (req, res) => {
+    app.post('/admin/approve', (req, res) => {
       const { password, submissionId } = req.body ?? {};
       if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const sub = pendingSubmissions.get(submissionId);
+      const sub = submissions.get(submissionId);
       if (!sub) return res.status(404).json({ error: 'Submission not found' });
+      if (sub.kind === 'game' && !slotAssignments.has(sub.slotKey))
+        return res.status(400).json({ error: 'Target room slot no longer exists' });
       try {
+        const kindMod = getKind(sub.kind);
         // For updates, preserve the existing file name so the module URL stays stable.
         const existing = sub.isUpdate ? slotAssignments.get(sub.slotKey) : null;
-        const fileName = existing?.fileName ?? (toKebabCase(sub.playerName) + '.js');
-        writeFileSync(join(ROOMS_DIR, fileName), sub.code, 'utf8');
-        slotAssignments.set(sub.slotKey, { fileName, roomName: sub.playerName, claimedBy: sub.playerName });
+        const fileName = kindMod.fileNameFor({ slotKey: sub.slotKey, displayName: sub.displayName, existingFileName: existing?.fileName });
+        writeFileSync(join(ROOT, kindMod.targetDir, fileName), sub.code, 'utf8');
+
+        if (sub.kind === 'room') {
+          // Spread the existing entry first so a room update doesn't silently
+          // drop an already-approved gameFileName or linked uid.
+          slotAssignments.set(sub.slotKey, {
+            ...slotAssignments.get(sub.slotKey),
+            fileName, roomName: sub.displayName, claimedBy: sub.displayName,
+            uid: sub.uid ?? slotAssignments.get(sub.slotKey)?.uid,
+          });
+        } else {
+          const slot = slotAssignments.get(sub.slotKey);
+          slot.gameFileName = fileName;
+          slotAssignments.set(sub.slotKey, slot);
+        }
         persistSlots();
-        pendingSubmissions.delete(submissionId);
-        const notifyMsg = sub.isUpdate
-          ? `Your updated world "${sub.playerName}" was approved! The portal has been refreshed.`
-          : `Your world "${sub.playerName}" was approved! Find your portal in the town square.`;
+        submissions.delete(submissionId);
+
+        const notifyMsg = sub.kind === 'room'
+          ? (sub.isUpdate
+              ? `Your updated world "${sub.displayName}" was approved! The portal has been refreshed.`
+              : `Your world "${sub.displayName}" was approved! Find your portal in the town square.`)
+          : 'Your mini-game was approved! It\'s now live in your portal.';
         notifyPlayer(sub.sessionId, 'approved', notifyMsg);
         broadcastSlotsUpdated();
-        console.log(`[Admin] Approved room ${sub.isUpdate ? 'update' : 'claim'} "${sub.playerName}" → ${sub.slotKey} (${fileName})`);
+        console.log(`[Admin] Approved ${sub.kind} ${sub.isUpdate ? 'update' : 'new'} "${sub.displayName}" → ${sub.slotKey} (${fileName})`);
         res.json({ ok: true, fileName });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
     });
 
-    app.post('/admin/reject-room', (req, res) => {
+    app.post('/admin/reject', (req, res) => {
       const { password, submissionId, reason } = req.body ?? {};
       if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const sub = pendingSubmissions.get(submissionId);
+      const sub = submissions.get(submissionId);
       if (!sub) return res.status(404).json({ error: 'Submission not found' });
-      pendingSubmissions.delete(submissionId);
+      submissions.delete(submissionId);
+      const label = sub.kind === 'room' ? 'world' : 'game';
       notifyPlayer(sub.sessionId, 'rejected',
-        `Your world submission was not approved. ${reason ? 'Reason: ' + reason : 'Please check your code and resubmit.'}`);
-      console.log(`[Admin] Rejected room from "${sub.playerName}"`);
-      res.json({ ok: true });
-    });
-
-    app.post('/admin/approve-game', (req, res) => {
-      const { password, submissionId } = req.body ?? {};
-      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const sub = pendingGames.get(submissionId);
-      if (!sub) return res.status(404).json({ error: 'Submission not found' });
-      const slot = slotAssignments.get(sub.slotKey);
-      if (!slot) return res.status(400).json({ error: 'Target room slot no longer exists' });
-      try {
-        const gameFileName = `game-${sub.slotKey}.js`;
-        writeFileSync(join(ROOMS_DIR, gameFileName), sub.code, 'utf8');
-        slot.gameFileName = gameFileName;
-        slotAssignments.set(sub.slotKey, slot);
-        persistSlots();
-        pendingGames.delete(submissionId);
-        notifyPlayer(sub.sessionId, 'approved', 'Your mini-game was approved! It\'s now live in your portal.');
-        broadcastSlotsUpdated();
-        console.log(`[Admin] Approved game for slot ${sub.slotKey} (${gameFileName})`);
-        res.json({ ok: true, gameFileName });
-      } catch (e) {
-        res.status(500).json({ error: e.message });
-      }
-    });
-
-    app.post('/admin/reject-game', (req, res) => {
-      const { password, submissionId, reason } = req.body ?? {};
-      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
-      const sub = pendingGames.get(submissionId);
-      if (!sub) return res.status(404).json({ error: 'Submission not found' });
-      pendingGames.delete(submissionId);
-      notifyPlayer(sub.sessionId, 'rejected',
-        `Your game submission was not approved. ${reason ? 'Reason: ' + reason : ''}`);
+        `Your ${label} submission was not approved. ${reason ? 'Reason: ' + reason : 'Please check your code and resubmit.'}`);
+      console.log(`[Admin] Rejected ${sub.kind} submission from "${sub.displayName}"`);
       res.json({ ok: true });
     });
 
@@ -450,7 +384,7 @@ const gameServer = new Server({
       if (!PORTAL_SLOTS.find(s => s.key === slotKey)) return res.status(400).json({ error: 'Invalid slot' });
       if (!roomName?.trim()) return res.status(400).json({ error: 'Room name required' });
       if (!code?.trim())     return res.status(400).json({ error: 'Room code required' });
-      const errors = validateRoomCode(code);
+      const errors = validateCode('room', code);
       if (errors.length > 0) return res.status(400).json({ errors });
       try {
         const fileName = toKebabCase(roomName) + '.js';
@@ -463,6 +397,21 @@ const gameServer = new Server({
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
+    });
+
+    // Bind an already-approved legacy slot to a real uid (no re-validation) —
+    // for when a pre-Phase-9A creator signs in and identifies themselves.
+    app.post('/admin/link-owner', (req, res) => {
+      const { password, slotKey, uid } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      const slot = slotAssignments.get(slotKey);
+      if (!slot) return res.status(404).json({ error: 'Slot not found' });
+      if (!uid?.trim()) return res.status(400).json({ error: 'uid required' });
+      slot.uid = uid.trim();
+      slotAssignments.set(slotKey, slot);
+      persistSlots();
+      console.log(`[Admin] Linked owner uid to ${slotKey}`);
+      res.json({ ok: true });
     });
   },
 });

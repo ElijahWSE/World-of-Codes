@@ -111,8 +111,7 @@
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
-  <button class="tab-btn" onclick="switchTab('pending-rooms')">Pending Rooms <span id="pending-rooms-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
-  <button class="tab-btn" onclick="switchTab('pending-games')">Pending Games <span id="pending-games-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
+  <button class="tab-btn" onclick="switchTab('pending')">Pending <span id="pending-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
 </div>
 
 <!-- ── Tab: Room Management ─────────────────────────────────────────────────── -->
@@ -169,24 +168,13 @@
   </section>
 </div>
 
-<!-- ── Tab: Pending Rooms ───────────────────────────────────────────────────── -->
-<div id="tab-pending-rooms" class="tab-pane">
+<!-- ── Tab: Pending ─────────────────────────────────────────────────────────── -->
+<div id="tab-pending" class="tab-pane">
   <section>
-    <h2>Pending Room Submissions</h2>
-    <p class="note" style="margin-bottom:1rem;color:#aaa">These were submitted by players in-game. Review the code, then approve or reject.</p>
-    <button class="btn btn-secondary btn-small" style="margin-bottom:1rem" onclick="loadPendingRooms()">Refresh</button>
-    <div id="pending-rooms-list"><p class="empty-state">Loading...</p></div>
-    <div class="status" id="pending-room-status"></div>
-  </section>
-</div>
+    <h2>Pending Submissions</h2>
+    <p class="note" style="margin-bottom:1rem;color:#aaa">Submitted by players in-game (rooms and mini-games share one queue). Review the code, then approve or reject.</p>
 
-<!-- ── Tab: Pending Games ───────────────────────────────────────────────────── -->
-<div id="tab-pending-games" class="tab-pane">
-  <section>
-    <h2>Pending Game Submissions</h2>
-    <p class="note" style="margin-bottom:1rem;color:#aaa">Mini-game files submitted for approved rooms. Review and approve to activate "[E] Play" in-game.</p>
-
-    <!-- Submit a game for a slot -->
+    <!-- Submit a game for a slot (admin bypass) -->
     <details style="margin-bottom:1.5rem">
       <summary style="cursor:pointer;color:#f4a261;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem">+ Submit a new game for a slot</summary>
       <div style="margin-top:0.75rem">
@@ -207,9 +195,19 @@
       </div>
     </details>
 
-    <button class="btn btn-secondary btn-small" style="margin-bottom:1rem" onclick="loadPendingGames()">Refresh</button>
-    <div id="pending-games-list"><p class="empty-state">Loading...</p></div>
-    <div class="status" id="pending-game-status"></div>
+    <div class="btn-row" style="margin-bottom:1rem">
+      <label style="margin-bottom:0;flex:0 0 auto">
+        <span>Kind</span>
+        <select id="pending-kind-filter" onchange="loadPending()" style="width:auto">
+          <option value="">All</option>
+          <option value="room">Room</option>
+          <option value="game">Game</option>
+        </select>
+      </label>
+      <button class="btn btn-secondary btn-small" onclick="loadPending()">Refresh</button>
+    </div>
+    <div id="pending-list"><p class="empty-state">Loading...</p></div>
+    <div class="status" id="pending-status"></div>
   </section>
 </div>
 
@@ -239,8 +237,7 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`).classList.add('active');
   if (name === 'rooms') loadSlots();
-  if (name === 'pending-rooms') loadPendingRooms();
-  if (name === 'pending-games') loadPendingGames();
+  if (name === 'pending') loadPending();
 }
 
 // ── Slot grid ─────────────────────────────────────────────────────────────────
@@ -298,34 +295,25 @@ async function removeRoom(slotKey) {
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────────
-const CHECKS = [
-  { id: 'no-jsx',      label: 'No JSX or HTML tags',       test: c => !/<(?:div|span|p|h[1-6]|ul|li|button|input|form)\b/i.test(c) && !/className\s*=/.test(c) },
-  { id: 'no-imports',  label: 'No import or require',       test: c => !/^\s*import\s+/m.test(c) && !/require\s*\(/.test(c) },
-  { id: 'has-name',    label: 'Exports: name (string)',     test: c => /export\s+const\s+name\s*=/.test(c) },
-  { id: 'has-onLoad',  label: 'Exports: onLoad function',  test: c => /export\s+(function\s+onLoad|const\s+onLoad\s*=)/.test(c) },
-  { id: 'has-onCreate',label: 'Exports: onCreate function',test: c => /export\s+(function\s+onCreate|const\s+onCreate\s*=)/.test(c) },
-  { id: 'has-onUpdate',label: 'Exports: onUpdate function',test: c => /export\s+(function\s+onUpdate|const\s+onUpdate\s*=)/.test(c) },
-  { id: 'has-onExit',  label: 'Exports: onExit function',  test: c => /export\s+(function\s+onExit|const\s+onExit\s*=)/.test(c) },
-  { id: 'no-fetch',    label: 'No fetch/document/window',  test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
-];
+// Server is the one real validator (src/creation-kinds/*.js + node --check),
+// used both for the actual submission gate and every preview here — so a
+// green check in this panel can never disagree with what /api/submit accepts.
+async function serverValidate(code, kind) {
+  try {
+    const res  = await fetch('/admin/validate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, kind }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, errors: [data.error ?? 'Validation failed'] };
+    return { ok: data.ok, errors: data.errors ?? [] };
+  } catch (e) {
+    return { ok: false, errors: [`Validation request failed: ${e.message}`] };
+  }
+}
 
-const GAME_CHECKS = [
-  { id: 'no-imports',       label: 'No import or require',          test: c => !/^\s*import\s+/m.test(c) && !/require\s*\(/.test(c) },
-  { id: 'has-game',         label: 'Exports: game object',          test: c => /export\s+const\s+game\s*=/.test(c) },
-  { id: 'has-gameName',     label: 'game.gameName defined',         test: c => /gameName\s*:/.test(c) },
-  { id: 'has-onGameLoad',   label: 'game.onGameLoad defined',       test: c => /onGameLoad\s*[:(]/.test(c) },
-  { id: 'has-onGameCreate', label: 'game.onGameCreate defined',     test: c => /onGameCreate\s*[:(]/.test(c) },
-  { id: 'has-onGameUpdate', label: 'game.onGameUpdate defined',     test: c => /onGameUpdate\s*[:(]/.test(c) },
-  { id: 'has-onGameExit',   label: 'game.onGameExit defined',       test: c => /onGameExit\s*[:(]/.test(c) },
-  { id: 'has-exitGame',     label: 'Calls scene.exitGame()',        test: c => /scene\.exitGame\s*\(/.test(c) },
-  { id: 'no-fetch',         label: 'No fetch/document/window',      test: c => !/\bfetch\s*\(/.test(c) && !/\bdocument\b/.test(c) && !/\blocalStorage\b/.test(c) },
-];
-
-function runValidation(code) { return CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
-function runGameValidation(code) { return GAME_CHECKS.map(c => ({ ...c, passed: c.test(code) })); }
-
-// Fetches full code for a pending submission and runs the appropriate checks inline.
-async function validatePendingCode(id, type) {
+// Fetches full code for a pending submission and validates it inline.
+async function validatePendingCode(id, kind) {
   const pw      = getPassword();
   const box     = document.getElementById(`val-${id}`);
   const fullEl  = document.getElementById(`full-${id}`);
@@ -335,12 +323,10 @@ async function validatePendingCode(id, type) {
   box.innerHTML = '<p style="color:#888;font-size:0.82rem">Validating…</p>';
   box.style.display = 'block';
 
-  // Fetch full code if not already loaded
   let code = fullEl.textContent;
   if (!code) {
-    const endpoint = type === 'room' ? `/admin/pending-rooms/${id}/code` : `/admin/pending-games/${id}/code`;
     try {
-      const res  = await fetch(`${endpoint}?password=${encodeURIComponent(pw)}`);
+      const res  = await fetch(`/admin/pending/${id}/code?password=${encodeURIComponent(pw)}`);
       const data = await res.json();
       code = data.code ?? '';
       fullEl.textContent = code;
@@ -350,92 +336,45 @@ async function validatePendingCode(id, type) {
     }
   }
 
-  // Run pattern checks
-  const patternResults = type === 'room' ? runValidation(code) : runGameValidation(code);
-
-  // Server syntax check
-  let syntaxResult;
-  try {
-    const res  = await fetch('/admin/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
-    const data = await res.json();
-    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax', passed: data.ok, syntaxError: data.syntaxError || null };
-  } catch {
-    syntaxResult = { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
-  }
-
-  const results  = [...patternResults, syntaxResult];
-  const failures = results.filter(r => !r.passed);
-  const allPass  = failures.length === 0;
-
-  const banner = allPass
-    ? `<div class="validation-banner all-pass">✓ All checks passed — safe to approve.</div>`
-    : `<div class="validation-banner has-fail">✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.</div>`;
-
-  const items = results.map(r => {
-    const detail = (!r.passed && r.syntaxError)
-      ? `<pre style="font-size:0.72rem;margin-top:0.25rem;color:#e07a7aaa;white-space:pre-wrap">${escHtml(r.syntaxError)}</pre>` : '';
-    return `<li class="${r.passed ? 'pass' : 'fail'}"><span class="icon">${r.passed ? '✓' : '✗'}</span><span>${r.label}${detail}</span></li>`;
-  }).join('');
-
-  box.innerHTML = `<div class="validation-banner ${allPass ? 'all-pass' : 'has-fail'}">${allPass ? '✓ All checks passed — safe to approve.' : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found — review before approving.`}</div><ul class="check-list">${items}</ul>`;
+  const { ok, errors } = await serverValidate(code, kind);
+  box.innerHTML = renderValidationBox(ok, errors);
 }
 
-function showValidationResults(results, code) {
-  const box     = document.getElementById('validation-box');
-  const banner  = document.getElementById('validation-banner');
-  const list    = document.getElementById('check-list');
+function renderValidationBox(ok, errors) {
+  const bannerClass = ok ? 'all-pass' : 'has-fail';
+  const bannerText  = ok ? '✓ All checks passed — safe to approve.' : `✗ ${errors.length} issue${errors.length > 1 ? 's' : ''} found — review before approving.`;
+  const items = errors.map(e => `<li class="fail"><span class="icon">✗</span><span>${escHtml(e)}</span></li>`).join('');
+  return `<div class="validation-banner ${bannerClass}">${bannerText}</div>${errors.length ? `<ul class="check-list">${items}</ul>` : ''}`;
+}
+
+function showValidationResults(ok, errors, code) {
+  const box       = document.getElementById('validation-box');
+  const banner    = document.getElementById('validation-banner');
+  const list      = document.getElementById('check-list');
   const promptBox = document.getElementById('gemini-prompt-box');
-  const failures  = results.filter(r => !r.passed);
-  const allPass   = failures.length === 0;
-  banner.textContent = allPass ? '✓ All checks passed.' : `✗ ${failures.length} issue${failures.length > 1 ? 's' : ''} found.`;
-  banner.className = 'validation-banner ' + (allPass ? 'all-pass' : 'has-fail');
-  list.innerHTML = results.map(r => {
-    const detail = (!r.passed && r.syntaxError)
-      ? `<pre style="font-size:0.75rem;margin-top:0.35rem;color:#e07a7aaa;white-space:pre-wrap">${r.syntaxError}</pre>` : '';
-    return `<li class="${r.passed ? 'pass' : 'fail'}"><span class="icon">${r.passed ? '✓' : '✗'}</span><span>${r.label}${detail}</span></li>`;
-  }).join('');
-  if (!allPass) {
-    document.getElementById('gemini-prompt').value = buildGeminiPrompt(code, failures);
+  banner.textContent = ok ? '✓ All checks passed.' : `✗ ${errors.length} issue${errors.length > 1 ? 's' : ''} found.`;
+  banner.className = 'validation-banner ' + (ok ? 'all-pass' : 'has-fail');
+  list.innerHTML = errors.map(e => `<li class="fail"><span class="icon">✗</span><span>${escHtml(e)}</span></li>`).join('');
+  if (!ok) {
+    document.getElementById('gemini-prompt').value = buildGeminiPrompt(code, errors);
     promptBox.style.display = 'block';
   } else {
     promptBox.style.display = 'none';
   }
   box.style.display = 'block';
-  return allPass;
+  return ok;
 }
 
-function buildGeminiPrompt(code, failures) {
-  const issueList = failures.map(f => {
-    switch (f.id) {
-      case 'no-jsx':       return '- The code contains JSX or HTML-like syntax. Use only scene.add.* methods.';
-      case 'no-imports':   return '- The code contains import or require statements. Room files must be self-contained.';
-      case 'has-name':     return "- Missing: export const name = 'Your Room Name';";
-      case 'has-onLoad':   return '- Missing: export function onLoad(scene) { ... }';
-      case 'has-onCreate': return '- Missing: export function onCreate(scene) { ... }';
-      case 'has-onUpdate': return '- Missing: export function onUpdate(scene) { ... }';
-      case 'has-onExit':   return '- Missing: export function onExit(scene) { ... }';
-      case 'syntax':       return `- JavaScript syntax error:\n  ${f.syntaxError || 'Unknown'}`;
-      default:             return `- Failed: ${f.label}`;
-    }
-  }).join('\n');
+function buildGeminiPrompt(code, errors) {
+  const issueList = errors.map(e => `- ${e}`).join('\n');
   return `The room code has errors. Please fix it.\n\nISSUES:\n${issueList}\n\nRULES:\n- Plain JavaScript module only — no JSX, no imports\n- Must export: name, onLoad, onCreate, onUpdate, onExit\n- Use scene.add.* for all visuals\n- Call scene.exitRoom() to exit\n\nORIGINAL CODE:\n\`\`\`js\n${code}\n\`\`\`\n\nReturn only the corrected JS file.`;
-}
-
-async function checkSyntaxServer(code) {
-  try {
-    const res  = await fetch('/admin/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
-    const data = await res.json();
-    return { id: 'syntax', label: 'Valid JavaScript syntax', passed: data.ok, syntaxError: data.syntaxError || null };
-  } catch {
-    return { id: 'syntax', label: 'Valid JavaScript syntax (server check skipped)', passed: true, syntaxError: null };
-  }
 }
 
 async function validateOnly() {
   const code = document.getElementById('room-code').value.trim();
   if (!code) { showStatus('assign-status', 'Paste room code first.', false); return; }
-  const results = [...runValidation(code), await checkSyntaxServer(code)];
-  showValidationResults(results, code);
+  const { ok, errors } = await serverValidate(code, 'room');
+  showValidationResults(ok, errors, code);
   document.getElementById('assign-status').className = 'status';
 }
 
@@ -459,9 +398,9 @@ async function assignRoom() {
   if (!roomName) return showStatus('assign-status', 'Room name is required.', false);
   if (!code)     return showStatus('assign-status', 'Room code is required.', false);
 
-  const results = [...runValidation(code), await checkSyntaxServer(code)];
-  const allPass = showValidationResults(results, code);
-  if (!allPass) { showStatus('assign-status', 'Fix the issues above before assigning.', false); return; }
+  const { ok, errors } = await serverValidate(code, 'room');
+  showValidationResults(ok, errors, code);
+  if (!ok) { showStatus('assign-status', 'Fix the issues above before assigning.', false); return; }
 
   try {
     const res  = await fetch('/admin/assign-room', {
@@ -481,38 +420,42 @@ async function assignRoom() {
   }
 }
 
-// ── Pending Rooms ──────────────────────────────────────────────────────────────
-async function loadPendingRooms() {
-  const list = document.getElementById('pending-rooms-list');
+// ── Pending (all kinds) ──────────────────────────────────────────────────────
+async function loadPending() {
+  const list = document.getElementById('pending-list');
   const pw   = getPassword();
   if (!pw) { list.innerHTML = '<p class="empty-state">Enter and save your password first.</p>'; return; }
+  const kind = document.getElementById('pending-kind-filter').value;
   try {
-    const res  = await fetch(`/admin/pending-rooms?password=${encodeURIComponent(pw)}`);
+    const qs   = new URLSearchParams({ password: pw, ...(kind ? { kind } : {}) });
+    const res  = await fetch(`/admin/pending?${qs}`);
     const data = await res.json();
     if (!res.ok) { list.innerHTML = `<p style="color:#e07a7a">${data.error}</p>`; return; }
-    const badge = document.getElementById('pending-rooms-badge');
+    const badge = document.getElementById('pending-badge');
     if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
     else badge.style.display = 'none';
     if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending submissions.</p>'; return; }
     list.innerHTML = data.map(s => `
-      <div class="pending-card" id="proom-${s.id}">
+      <div class="pending-card" id="psub-${s.id}">
         <div class="meta">
-          <strong style="color:#e0e0e0">${s.playerName}</strong>
+          <strong style="color:#e0e0e0">${escHtml(s.displayName)}</strong>
+          <span class="badge" style="background:${s.kind === 'room' ? '#2a4a7f' : '#1a3a6a'};color:#aaccff">${s.kind.toUpperCase()}</span>
           <span class="badge badge-slot">${s.slotKey}</span>
-          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff;margin-left:4px">UPDATE</span>' : ''}
+          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
+          ${s.ownerMismatch ? '<span class="badge" style="background:#6a2d2d;color:#e07a7a" title="This submission\'s signed-in account does not match the account linked to this slot">⚠ OWNER MISMATCH</span>' : ''}
           — ${new Date(s.submittedAt).toLocaleString()}
         </div>
         <div class="preview" id="preview-${s.id}">${escHtml(s.codePreview)}…</div>
         <div class="full-code" id="full-${s.id}"></div>
         <div class="btn-row">
-          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}', 'room')">View Full Code</button>
-          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', 'room')">Validate Code</button>
-          <button class="btn btn-success btn-small" onclick="approveRoom('${s.id}', '${escAttr(s.playerName)}', ${!!s.isUpdate})">✓ Approve</button>
+          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', '${s.kind}')">Validate Code</button>
+          <button class="btn btn-success btn-small" onclick="approveSubmission('${s.id}', '${s.kind}', '${escAttr(s.displayName)}', ${!!s.isUpdate})">✓ Approve</button>
         </div>
         <div class="inline-validation" id="val-${s.id}"></div>
         <div class="reject-row">
           <input class="reject-input" type="text" id="reject-reason-${s.id}" placeholder="Rejection reason (optional)">
-          <button class="btn btn-danger btn-small" onclick="rejectRoom('${s.id}')">✗ Reject</button>
+          <button class="btn btn-danger btn-small" onclick="rejectSubmission('${s.id}')">✗ Reject</button>
         </div>
       </div>`).join('');
   } catch (e) {
@@ -520,15 +463,14 @@ async function loadPendingRooms() {
   }
 }
 
-async function toggleFullCode(id, type) {
+async function toggleFullCode(id) {
   const pw      = getPassword();
   const preview = document.getElementById(`preview-${id}`);
   const full    = document.getElementById(`full-${id}`);
   if (full.style.display === 'block') { full.style.display = 'none'; preview.style.display = 'block'; return; }
   if (!full.textContent) {
-    const endpoint = type === 'room' ? `/admin/pending-rooms/${id}/code` : `/admin/pending-games/${id}/code`;
     try {
-      const res  = await fetch(`${endpoint}?password=${encodeURIComponent(pw)}`);
+      const res  = await fetch(`/admin/pending/${id}/code?password=${encodeURIComponent(pw)}`);
       const data = await res.json();
       full.textContent = data.code ?? data.error;
     } catch (e) { full.textContent = 'Failed to load: ' + e.message; }
@@ -537,80 +479,42 @@ async function toggleFullCode(id, type) {
   full.style.display = 'block';
 }
 
-async function approveRoom(submissionId, name, isUpdate = false) {
+async function approveSubmission(submissionId, kind, name, isUpdate = false) {
   const pw = getPassword();
   if (!pw) { alert('Enter and save your password first.'); return; }
+  const label = kind === 'room' ? 'world' : 'mini-game';
   const confirmMsg = isUpdate
-    ? `Approve update for "${name}"? This overwrites the existing room file immediately.`
-    : `Approve world "${name}"? This writes the room file and activates the portal immediately.`;
+    ? `Approve update for "${name}"? This overwrites the existing ${label} file immediately.`
+    : `Approve ${label} "${name}"? This writes the file and activates it immediately.`;
   if (!confirm(confirmMsg)) return;
   try {
-    const res  = await fetch('/admin/approve-room', {
+    const res  = await fetch('/admin/approve', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pw, submissionId }),
     });
     const data = await res.json();
-    if (!res.ok) { showStatus('pending-room-status', `Error: ${data.error}`, false); return; }
-    const okMsg = isUpdate ? `✓ Update approved! Room file replaced (${data.fileName}).` : `✓ Approved! Portal is now live (${data.fileName}).`;
-    showStatus('pending-room-status', okMsg, true);
-    document.getElementById(`proom-${submissionId}`)?.remove();
+    if (!res.ok) { showStatus('pending-status', `Error: ${data.error}`, false); return; }
+    const okMsg = isUpdate ? `✓ Update approved! File replaced (${data.fileName}).` : `✓ Approved! Now live (${data.fileName}).`;
+    showStatus('pending-status', okMsg, true);
+    document.getElementById(`psub-${submissionId}`)?.remove();
     loadSlots();
-  } catch (e) { showStatus('pending-room-status', `Failed: ${e.message}`, false); }
+  } catch (e) { showStatus('pending-status', `Failed: ${e.message}`, false); }
 }
 
-async function rejectRoom(submissionId) {
+async function rejectSubmission(submissionId) {
   const pw     = getPassword();
   const reason = document.getElementById(`reject-reason-${submissionId}`)?.value.trim();
   if (!pw) { alert('Enter and save your password first.'); return; }
   try {
-    const res  = await fetch('/admin/reject-room', {
+    const res  = await fetch('/admin/reject', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pw, submissionId, reason }),
     });
     const data = await res.json();
-    if (!res.ok) { showStatus('pending-room-status', `Error: ${data.error}`, false); return; }
-    showStatus('pending-room-status', 'Submission rejected. Player notified.', true);
-    document.getElementById(`proom-${submissionId}`)?.remove();
-  } catch (e) { showStatus('pending-room-status', `Failed: ${e.message}`, false); }
-}
-
-// ── Pending Games ──────────────────────────────────────────────────────────────
-async function loadPendingGames() {
-  const list = document.getElementById('pending-games-list');
-  const pw   = getPassword();
-  if (!pw) { list.innerHTML = '<p class="empty-state">Enter and save your password first.</p>'; return; }
-  try {
-    const res  = await fetch(`/admin/pending-games?password=${encodeURIComponent(pw)}`);
-    const data = await res.json();
-    if (!res.ok) { list.innerHTML = `<p style="color:#e07a7a">${data.error}</p>`; return; }
-    const badge = document.getElementById('pending-games-badge');
-    if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
-    else badge.style.display = 'none';
-    if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending game submissions.</p>'; return; }
-    list.innerHTML = data.map(g => `
-      <div class="pending-card" id="pgame-${g.id}">
-        <div class="meta">
-          <strong style="color:#e0e0e0">${g.submittedBy ?? 'unknown'}</strong>
-          — Game for <span class="badge badge-slot">${g.slotKey}</span>
-          ${g.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff;margin-left:4px">UPDATE</span>' : ''}
-          — ${new Date(g.submittedAt).toLocaleString()}
-        </div>
-        <div class="preview" id="preview-${g.id}">${escHtml(g.codePreview)}…</div>
-        <div class="full-code" id="full-${g.id}"></div>
-        <div class="btn-row">
-          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${g.id}', 'game')">View Full Code</button>
-          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${g.id}', 'game')">Validate Code</button>
-          <button class="btn btn-success btn-small" onclick="approveGame('${g.id}')">✓ Approve</button>
-        </div>
-        <div class="inline-validation" id="val-${g.id}"></div>
-        <div class="reject-row">
-          <input class="reject-input" type="text" id="reject-reason-${g.id}" placeholder="Rejection reason (optional)">
-          <button class="btn btn-danger btn-small" onclick="rejectGame('${g.id}')">✗ Reject</button>
-        </div>
-      </div>`).join('');
-  } catch (e) {
-    list.innerHTML = `<p style="color:#e07a7a">Failed: ${e.message}</p>`;
-  }
+    if (!res.ok) { showStatus('pending-status', `Error: ${data.error}`, false); return; }
+    showStatus('pending-status', 'Submission rejected. Player notified.', true);
+    document.getElementById(`psub-${submissionId}`)?.remove();
+  } catch (e) { showStatus('pending-status', `Failed: ${e.message}`, false); }
 }
 
 async function submitGame() {
@@ -621,49 +525,16 @@ async function submitGame() {
   if (!slotKey) return showStatus('game-submit-status', 'Choose a portal slot.', false);
   if (!code)    return showStatus('game-submit-status', 'Paste game code first.', false);
   try {
-    const res  = await fetch('/api/submit-game', {
+    const res  = await fetch('/api/submit', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slotKey, submittedBy: 'admin', code }),
+      body: JSON.stringify({ kind: 'game', slotKey, displayName: 'admin', code }),
     });
     const data = await res.json();
     if (!res.ok) return showStatus('game-submit-status', `Error: ${data.errors?.join(', ') ?? data.error}`, false);
     showStatus('game-submit-status', 'Game submitted to pending queue.', true);
     document.getElementById('game-code').value = '';
-    loadPendingGames();
+    loadPending();
   } catch (e) { showStatus('game-submit-status', `Failed: ${e.message}`, false); }
-}
-
-async function approveGame(submissionId) {
-  const pw = getPassword();
-  if (!pw) { alert('Enter and save your password first.'); return; }
-  if (!confirm('Approve this mini-game? It will be live immediately.')) return;
-  try {
-    const res  = await fetch('/admin/approve-game', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw, submissionId }),
-    });
-    const data = await res.json();
-    if (!res.ok) { showStatus('pending-game-status', `Error: ${data.error}`, false); return; }
-    showStatus('pending-game-status', `✓ Game approved and live! (${data.gameFileName})`, true);
-    document.getElementById(`pgame-${submissionId}`)?.remove();
-    loadSlots();
-  } catch (e) { showStatus('pending-game-status', `Failed: ${e.message}`, false); }
-}
-
-async function rejectGame(submissionId) {
-  const pw     = getPassword();
-  const reason = document.getElementById(`reject-reason-${submissionId}`)?.value.trim();
-  if (!pw) { alert('Enter and save your password first.'); return; }
-  try {
-    const res  = await fetch('/admin/reject-game', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw, submissionId, reason }),
-    });
-    const data = await res.json();
-    if (!res.ok) { showStatus('pending-game-status', `Error: ${data.error}`, false); return; }
-    showStatus('pending-game-status', 'Game submission rejected.', true);
-    document.getElementById(`pgame-${submissionId}`)?.remove();
-  } catch (e) { showStatus('pending-game-status', `Failed: ${e.message}`, false); }
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────

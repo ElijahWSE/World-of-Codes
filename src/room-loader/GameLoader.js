@@ -1,14 +1,21 @@
 // GameLoader.js — validates a game module and calls onGameCreate.
 // Returns true on success, false on failure (shows in-scene error text).
 
+import { getKind } from '../creation-kinds/index.js';
+
+// Hook contract from the shared creation-kind registry (src/creation-kinds/game.js).
+const { hooks: REQUIRED_HOOKS } = getKind('game');
+
 export function loadGame(gameModule, scene) {
   const errors = [];
 
-  if (typeof gameModule.gameName !== 'string' || !gameModule.gameName.trim()) {
-    errors.push('gameName must be a non-empty string');
-  }
-  for (const fn of ['onGameLoad', 'onGameCreate', 'onGameUpdate', 'onGameExit']) {
-    if (typeof gameModule[fn] !== 'function') errors.push(`${fn} must be a function`);
+  for (const { name, type } of REQUIRED_HOOKS) {
+    if (type === 'string') {
+      if (typeof gameModule[name] !== 'string' || !gameModule[name].trim())
+        errors.push(`${name} must be a non-empty string`);
+    } else if (typeof gameModule[name] !== 'function') {
+      errors.push(`${name} must be a function`);
+    }
   }
 
   if (errors.length > 0) {
