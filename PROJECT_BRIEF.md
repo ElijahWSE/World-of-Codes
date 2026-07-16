@@ -634,6 +634,16 @@ sessions/{id}     → { hostUid, roster: [uid], startedAt, endedAt, status }
 
 Why this ordering: Phase 8 (town square) has no such dependency and ran first. From here on, auth must exist before anything can be attributed to a player (feedback, remixing, profiles all need a stable `uid`). The generic submission system must exist before Phase 11 adds more kinds, or the duplication debt compounds.
 
+**Pending manual UI verification (2026-07-16):** M2/M3 above were verified via direct API calls (curl/node), not by clicking through the actual browser UI. Do this manual pass before treating Phase 9B as fully closed:
+
+1. Open `/admin` — confirm only two tabs now: "Room Management" and "Pending" (was three: Room Management, Pending Rooms, Pending Games).
+2. Claim an empty portal in-game (`[E]`), submit a test room. In `/admin` → Pending, confirm it shows a blue **ROOM** badge.
+3. Once approved, re-enter that room and submit a mini-game. Confirm both a ROOM and a GAME card appear in the same Pending list, and the **Kind filter dropdown** (All/Room/Game) actually filters between them.
+4. Submit a game that never calls `scene.exitGame()` — confirm it's rejected at submission with *"Must call scene.exitGame() so the player can exit"* (this used to only be a cosmetic hint, not enforced).
+5. On a slot with an approved room **and** an approved game, submit a room *update* and approve it — confirm the slot still shows the game as active afterward (this was a real bug: room updates used to silently wipe the linked game and owner uid).
+6. Reject a pending submission with a reason — confirm the player gets an in-game toast and no file was written under `src/rooms/`.
+7. Sign in as Account A, claim a portal, get it approved. Sign in as Account B, submit an update to that same slot. Confirm the Pending card shows a **"⚠ OWNER MISMATCH"** badge but can still be approved (non-blocking).
+
 ---
 
 ### PHASE 10 — CHARACTER CREATOR (PLANNED, unchanged)
