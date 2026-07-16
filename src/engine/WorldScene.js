@@ -11,6 +11,8 @@
 import Phaser from 'phaser';
 import { Client } from '@colyseus/sdk';
 import { WorldState } from '../shared/schema.js';
+import { getFreshIdToken, onSessionChange } from '../auth/session.js';
+import { signOutUser } from '../auth/googleAuth.js';
 import {
   WORLD_W, WORLD_H, CITY_W, CITY_H, CITY_X0, CITY_Y0,
   HUB_BOUNDS, PLOTS, SPAWN_POINT, STREET_PROPS,
@@ -50,6 +52,11 @@ export default class WorldScene extends Phaser.Scene {
 
   init(data) {
     this._returnDoor = data?.returnDoor ?? null;
+    if (data?.uid) {
+      this.playerUid      = data.uid;
+      this.playerName     = String(data.displayName ?? 'Player').slice(0, 20);
+      this.playerPhotoURL = data.photoURL ?? null;
+    }
   }
 
   preload() {}
@@ -64,6 +71,7 @@ export default class WorldScene extends Phaser.Scene {
     this._createPlayer();
     this._createGarden();
     this._createSignpost();
+    this._createSignOutButton();
     this._setupCamera();
     this._setupInput();
     this._connectMultiplayer();
@@ -71,8 +79,14 @@ export default class WorldScene extends Phaser.Scene {
     // Fetch portal slots from server and draw portals
     this._fetchAndDrawPortals();
 
+    this._unsubscribeSession = onSessionChange(session => {
+      if (!session.uid) this.scene.start('LoginScene');
+    });
+
     this.events.once('shutdown', () => {
       this._destroyClaimOverlay();
+      this._destroySignOutButton();
+      if (this._unsubscribeSession) { this._unsubscribeSession(); this._unsubscribeSession = null; }
       if (this.colyseusRoom) {
         this.colyseusRoom.leave();
         this.colyseusRoom = null;
@@ -505,7 +519,8 @@ export default class WorldScene extends Phaser.Scene {
   _connectMultiplayer() {
     console.log(`[Colyseus] Connecting to ${SERVER_URL}`);
     const client = new Client(SERVER_URL);
-    client.joinOrCreate('world', { name: this.playerName }, WorldState)
+    getFreshIdToken()
+      .then(idToken => client.joinOrCreate('world', { name: this.playerName, uid: this.playerUid, idToken }, WorldState))
       .then(room => {
         this.colyseusRoom = room;
         console.log(`[Colyseus] Joined as "${this.playerName}" (session: ${room.sessionId})`);
@@ -797,6 +812,25 @@ export default class WorldScene extends Phaser.Scene {
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 6000);
+  }
+
+  // ── Sign-out button ────────────────────────────────────────────────────────
+  _createSignOutButton() {
+    const el = document.createElement('button');
+    el.textContent = 'Sign Out';
+    el.style.cssText = [
+      'position:fixed;top:1rem;right:1rem;z-index:9997',
+      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
+      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
+      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+    ].join(';');
+    el.onclick = () => signOutUser();
+    document.body.appendChild(el);
+    this._signOutBtnEl = el;
+  }
+
+  _destroySignOutButton() {
+    if (this._signOutBtnEl) { this._signOutBtnEl.remove(); this._signOutBtnEl = null; }
   }
 
   // ── Signpost ───────────────────────────────────────────────────────────────

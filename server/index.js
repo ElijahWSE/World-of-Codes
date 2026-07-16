@@ -11,6 +11,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { tmpdir } from 'os';
+import admin from 'firebase-admin';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ROOT       = join(__dirname, '..');
@@ -20,6 +21,14 @@ const DATA_DIR   = join(__dirname, 'data');
 const SLOTS_FILE = join(DATA_DIR, 'slots.json');
 
 const ADMIN_PASSWORD = 'worldofcodes';
+
+// ── Firebase Admin (Phase 9A) ─────────────────────────────────────────────────
+// Service account is never a committed file — loaded from the
+// FIREBASE_SERVICE_ACCOUNT_JSON Codespaces secret at boot.
+admin.initializeApp({
+  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+});
+const db = admin.firestore();
 
 // ── 20 Portal Slot Positions ──────────────────────────────────────────────────
 // These positions are scattered across the 1600×1200 world, avoiding the player
@@ -177,11 +186,23 @@ class WorldRoom extends Room {
     console.log('[WorldRoom] Created — waiting for players');
   }
 
-  onJoin(client, options) {
+  async onJoin(client, options) {
     const player  = new PlayerState();
     player.x      = 800;
     player.y      = 600;
     player.name   = String(options?.name ?? `Player_${client.sessionId.slice(0, 4)}`).slice(0, 20);
+
+    // Trust boundary: uid is broadcast to every client via PlayerState, so it
+    // must be backed by a server-verified idToken, never taken from options.uid directly.
+    if (options?.idToken) {
+      try {
+        const decoded = await admin.auth().verifyIdToken(options.idToken);
+        player.uid = decoded.uid;
+      } catch (e) {
+        console.warn(`[WorldRoom] Rejected invalid idToken from ${client.sessionId}: ${e.message}`);
+      }
+    }
+
     this.state.players.set(client.sessionId, player);
     console.log(`[WorldRoom] ${player.name} joined (${this.clients.length} online)`);
   }
@@ -225,6 +246,28 @@ const gameServer = new Server({
     // ── Public API ─────────────────────────────────────────────────────────────
     app.get('/api/portal-slots', (_req, res) => {
       res.json({ slots: buildSlotList() });
+    });
+
+    // Verify a Google Sign-In ID token and upsert users/{uid} in Firestore.
+    app.post('/api/auth/verify', async (req, res) => {
+      const { idToken } = req.body ?? {};
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      try {
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const { uid, name, email, picture } = decoded;
+        const displayName = name ?? email ?? 'Player';
+        const userRef = db.collection('users').doc(uid);
+        await userRef.set({ displayName, email: email ?? null, photoURL: picture ?? null }, { merge: true });
+        const snap = await userRef.get();
+        res.json({ ok: true, uid, displayName, photoURL: picture ?? null, slotKey: snap.data()?.slotKey ?? null });
+      } catch (e) {
+        res.status(401).json({ error: 'Invalid ID token' });
+      }
+    });
+
+    // Stub — real character config lands in Phase 10.
+    app.get('/api/character/:uid', (_req, res) => {
+      res.json({ characterConfig: null });
     });
 
     // Player submits room code from in-game claim overlay

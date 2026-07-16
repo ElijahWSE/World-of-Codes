@@ -4,6 +4,7 @@
 // New scenes (e.g. RoomScene added in Phase 4) are registered here.
 
 import Phaser from 'phaser';
+import LoginScene from './LoginScene.js';
 import WorldScene from './WorldScene.js';
 import RoomScene from './RoomScene.js';
 import GameScene from './GameScene.js';
@@ -24,9 +25,10 @@ const config = {
   },
 
   // Scene list — order matters: first scene auto-starts on boot.
-  // WorldScene is first so it starts automatically. RoomScene is launched
-  // programmatically when a player walks through a door.
-  scene: [WorldScene, RoomScene, GameScene]
+  // LoginScene is first so every player must sign in before WorldScene is
+  // reachable (Phase 9A). RoomScene is launched programmatically when a
+  // player walks through a door.
+  scene: [LoginScene, WorldScene, RoomScene, GameScene]
 };
 
 // Boot the game. Phaser attaches the canvas to `config.parent`.

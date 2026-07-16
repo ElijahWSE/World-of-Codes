@@ -16,6 +16,7 @@ export class PlayerState extends Schema {
     this.x           = 0;
     this.y           = 0;
     this.name        = '';
+    this.uid         = ''; // Firebase uid once signed in (Phase 9A), '' for none
     this.currentRoom = 'world'; // 'world' or a door key like 'room1'
     this.roomX       = 0;      // position inside the room
     this.roomY       = 0;
@@ -25,6 +26,7 @@ defineTypes(PlayerState, {
   x:           'number',
   y:           'number',
   name:        'string',
+  uid:         'string',
   currentRoom: 'string',
   roomX:       'number',
   roomY:       'number',

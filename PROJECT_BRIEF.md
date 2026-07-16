@@ -12,7 +12,7 @@ There is a **shared town square** where all players can walk around and see each
 
 Beyond sharing and trying out creations, the platform is meant to encourage players to document their creative process, give and receive feedback, and optionally share their code so others can remix it. A public profile page gives each player an overview of everything they've made, without needing to walk the world to find it.
 
-**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades, stepped terrain). Phase 9 (auth + generalized submission system) is next up, split into sequential sub-phases **9A (Auth)** and **9B (Generalized submission system)** — see Phase 9 below. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
+**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades, stepped terrain). Phase 9A (Auth) is complete and live as of 2026-07-16 — Google Sign-In gates world entry, real `uid`/`displayName` flow through multiplayer state, verified with two simultaneous signed-in accounts. Phase 9B (Generalized submission system) is next up — see Phase 9 below. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
 
 ---
 
@@ -591,15 +591,7 @@ Today there is **zero identity or database infrastructure in the repo**: player 
 
 **M0 status (2026-07-15):** Firebase project (`impactground`) created, Google Sign-In enabled, Firestore created (`asia-southeast1`, Standard edition), web app registered, Codespaces domain authorized. Client env vars and the service account are stored as **GitHub Codespaces secrets** (account-level, scoped to this repo) rather than local `.env`/`serviceAccountKey.json` files — this survives Codespace deletion/recreation and matches the Phase 17 "service account from env var" pattern early, avoiding a rewrite later. Secrets added: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
-**Pending verification (do this after next Codespace restart/rebuild, before continuing M1):** the secrets were added while this Codespace was already running, so they won't appear until it's stopped/restarted or rebuilt. Once restarted, run this in a terminal to confirm all 7 landed (prints SET/unset per var, without ever printing the actual secret values):
-```bash
-for v in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID \
-         VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID \
-         FIREBASE_SERVICE_ACCOUNT_JSON; do
-  echo "$v: ${!v:+SET}"
-done
-```
-If all 7 print `SET`, tell me and I'll: (1) update `server/index.js` to load the service account via `JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)` instead of the file, (2) delete the now-redundant `server/serviceAccountKey.json` and local `.env` (keep `.env.example` committed as documentation), (3) start M1 proper (schema `uid` field, `LoginScene`, `/api/auth/verify`).
+**M1 status (2026-07-16): complete and verified.** All 7 Codespaces secrets confirmed `SET` after restart; `server/index.js` now loads the service account via `JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)`; the now-redundant `server/serviceAccountKey.json` and local `.env` were deleted (`.env.example` stays as documentation). Built: `uid` field on `PlayerState`, `LoginScene` (Google Sign-In overlay, gates world entry as the first scene in `main.js`), `/api/auth/verify` (verifies token, upserts `users/{uid}` in Firestore), `WorldRoom.onJoin` verifies `options.idToken` server-side before trusting `options.uid`, and a sign-out control in `WorldScene` that routes back to `LoginScene`. Verified live: two different Google accounts signed in from separate browser sessions, saw each other in the town square and inside rooms, sign-out correctly returned to `LoginScene`. Portal walkthrough of all 13 legacy rooms not yet explicitly re-confirmed post-auth, but multiplayer sync and room entry were exercised live with no errors observed.
 
 #### 9B — Generalized submission system
 
@@ -636,7 +628,7 @@ sessions/{id}     → { hostUid, roster: [uid], startedAt, endedAt, status }
 
 **Milestones (each leaves the app in a working, testable state):**
 - **M0 — Setup, no behavior change:** Firebase project + Google provider enabled, Codespaces domain authorized, service account issued, deps installed, env vars in place.
-- **M1 — Auth live (9A):** `LoginScene` gates world entry, real `uid`/`displayName` flow into `PlayerState`, server verifies tokens, `users/{uid}` upserts in Firestore. Submission pipeline untouched.
+- **M1 — Auth live (9A): ✅ complete (2026-07-16).** `LoginScene` gates world entry, real `uid`/`displayName` flow into `PlayerState`, server verifies tokens, `users/{uid}` upserts in Firestore. Submission pipeline untouched.
 - **M2 — Pipeline generalized (9B):** registry + 5 unified endpoints replace the dual pipeline; `admin.html` becomes kind-agnostic; the three submit call-sites updated.
 - **M3 — Ownership tightens (9B):** new claims always carry a verified `uid`; `link-owner` action available for the 13 legacy slots; mismatch indicator live in the admin queue.
 
