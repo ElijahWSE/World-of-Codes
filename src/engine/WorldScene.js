@@ -119,8 +119,12 @@ export default class WorldScene extends Phaser.Scene {
       for (const slot of slots) {
         if (slot.fileName) {
           try {
-            // vite-ignore: path is dynamic (user-submitted room file)
-            slot.roomModule = await import(/* @vite-ignore */ '/rooms/' + slot.fileName);
+            // vite-ignore: path is dynamic (user-submitted room file).
+            // ?v=roomVersion busts the browser's ES module cache — updates
+            // reuse the same fileName, so without this an approved update
+            // never reaches players who already imported the old version.
+            const url = '/rooms/' + slot.fileName + (slot.roomVersion ? `?v=${slot.roomVersion}` : '');
+            slot.roomModule = await import(/* @vite-ignore */ url);
           } catch (e) {
             console.warn('[WorldScene] Could not load room:', slot.fileName, e.message);
             slot.roomModule = null;
@@ -157,8 +161,12 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   _drawPortal(slot) {
-    const { key, x, y, color, roomName, fileName } = slot;
+    const { key, x, y, color, roomName, fileName, uid } = slot;
     const isActive  = !!fileName;
+    // Locked = someone else's confirmed-owner slot. uid is only ever set once
+    // a room has been through /admin/link-owner or approved while signed in,
+    // so unlinked/legacy slots (uid: null) are never locked.
+    const isLocked  = isActive && !!uid && uid !== this.playerUid;
     const drawColor = isActive ? color : 0x555566;
     const coreAlpha = isActive ? 0.55 : 0.2;
     const ringAlpha = isActive ? 0.85 : 0.35;
@@ -231,6 +239,10 @@ export default class WorldScene extends Phaser.Scene {
     if (!isActive) {
       claimHint = track(this.add.text(x, y - 96, '[E] Claim Portal', {
         fontSize: '12px', fill: '#ccccaa', stroke: '#000000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(20).setVisible(false));
+    } else if (isLocked) {
+      updateHint = track(this.add.text(x, y - 96, '🔒 Owned by another creator', {
+        fontSize: '12px', fill: '#e07a7a', stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(20).setVisible(false));
     } else {
       updateHint = track(this.add.text(x, y - 96, '[U] Update World', {
@@ -648,7 +660,12 @@ export default class WorldScene extends Phaser.Scene {
         const hint = this._updateHints.get(door.key);
         if (hint) hint.setVisible(nearUpdate);
         if (nearUpdate && Phaser.Input.Keyboard.JustDown(this._keyU)) {
-          this._openClaimOverlay(door.key, true);
+          const isLocked = !!door.uid && door.uid !== this.playerUid;
+          if (isLocked) {
+            this._showToast("This world belongs to another creator — you can't edit it.", 'rejected');
+          } else {
+            this._openClaimOverlay(door.key, true);
+          }
         }
         if (dist < PORTAL_RADIUS && !door.triggered) {
           if (hint) hint.setVisible(false);
@@ -662,6 +679,7 @@ export default class WorldScene extends Phaser.Scene {
             colyseusRoom: this.colyseusRoom,
             roomKey:      door.key,
             gameFileName: door.gameFileName ?? null,
+            gameVersion:  door.gameVersion  ?? null,
           });
           this.scene.sleep();
         } else if (dist >= PORTAL_RADIUS) {

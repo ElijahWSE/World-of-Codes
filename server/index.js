@@ -87,6 +87,16 @@ function buildSlotList() {
       roomName:     a?.roomName     ?? null,
       claimedBy:    a?.claimedBy    ?? null,
       gameFileName: a?.gameFileName ?? null,
+      // Lets the client show/enforce the ownership lock on [U] Update
+      // before submission, not just reject it server-side afterward.
+      uid:          a?.uid          ?? null,
+      // Bump on every approved write so the client can cache-bust its
+      // dynamic import() — updates intentionally reuse the same fileName
+      // (see room.js's fileNameFor), and browsers cache ES modules by URL,
+      // so without a changing query param an approved update never
+      // actually reaches players already holding the old module.
+      roomVersion:  a?.roomVersion  ?? null,
+      gameVersion:  a?.gameVersion  ?? null,
     };
   });
 }
@@ -264,6 +274,9 @@ const gameServer = new Server({
         return res.status(400).json({ error: 'Code required' });
       if (kind === 'game' && !slotAssignments.has(slotKey))
         return res.status(400).json({ error: 'No room approved for that slot yet' });
+      const linkedUid = slotAssignments.get(slotKey)?.uid;
+      if (linkedUid && uid !== linkedUid)
+        return res.status(403).json({ error: 'This slot belongs to a different signed-in creator.' });
       for (const sub of submissions.values()) {
         if (sub.slotKey === slotKey && sub.kind === kind)
           return res.status(400).json({ error: 'That slot already has a pending submission of this kind. Please wait for the current one to be reviewed.' });
@@ -290,12 +303,10 @@ const gameServer = new Server({
     app.get('/admin/pending', (req, res) => {
       if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
       const kindFilter = req.query.kind;
+      // Owner mismatches are rejected at /api/submit now, so nothing reaching
+      // this queue can ever mismatch its slot's linked owner.
       const list = [...submissions.values()].filter(s => !kindFilter || s.kind === kindFilter);
-      res.json(list.map(s => {
-        const linkedUid    = slotAssignments.get(s.slotKey)?.uid;
-        const ownerMismatch = !!(linkedUid && s.uid && linkedUid !== s.uid);
-        return { ...s, codePreview: s.code.slice(0, 300), code: undefined, ownerMismatch };
-      }));
+      res.json(list.map(s => ({ ...s, codePreview: s.code.slice(0, 300), code: undefined })));
     });
 
     // Full code for a specific submission (admin review)
@@ -328,10 +339,12 @@ const gameServer = new Server({
             ...slotAssignments.get(sub.slotKey),
             fileName, roomName: sub.displayName, claimedBy: sub.displayName,
             uid: sub.uid ?? slotAssignments.get(sub.slotKey)?.uid,
+            roomVersion: Date.now(),
           });
         } else {
           const slot = slotAssignments.get(sub.slotKey);
           slot.gameFileName = fileName;
+          slot.gameVersion  = Date.now();
           slotAssignments.set(sub.slotKey, slot);
         }
         persistSlots();

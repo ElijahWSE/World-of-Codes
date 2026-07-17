@@ -32,6 +32,7 @@ export default class RoomScene extends Phaser.Scene {
     this._colyseusRoom  = data?.colyseusRoom  ?? null;
     this._roomKey       = data?.roomKey       ?? null;
     this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
+    this._gameVersion   = data?.gameVersion   ?? null;  // cache-buster for the import() below
     this._gameModule    = null;                          // loaded dynamically in create()
     this._roomUpdate    = null;
     this._loaded        = false;
@@ -160,6 +161,15 @@ export default class RoomScene extends Phaser.Scene {
 
         this.players = newPlayers;
       });
+
+      // Server pushes this when a game (or room) gets approved. The
+      // gameFileName this scene started with was a snapshot taken when
+      // WorldScene launched us — if approval happens while the player is
+      // already standing in the room, that snapshot goes stale and [E]
+      // would say "???" forever without this.
+      this._unsubSlotsUpdated = this._colyseusRoom.onMessage('slotsUpdated', () => {
+        this._refreshGameModule();
+      });
     }
 
     // ── exitRoom ──────────────────────────────────────────────────────────────
@@ -171,6 +181,7 @@ export default class RoomScene extends Phaser.Scene {
     this.exitRoom = () => {
       if (this._exited) return;
       this._exited = true;
+      this._unsubSlotsUpdated?.();
       if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
       this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
       this.scene.stop();
@@ -181,25 +192,41 @@ export default class RoomScene extends Phaser.Scene {
     // gameZoneX/Y   = legacy in-file game system (Phase 6, still supported)
     this._gameHint       = null;
     this._gameSubmitHint = null;
+    // A prior RoomScene run (any room, since scene.start() re-runs create()
+    // without ever destroying the old overlay div) may have left its overlay
+    // orphaned in the DOM. Remove it so the new one below doesn't collide on
+    // id with a stale, hidden copy — getElementById() always returns the
+    // first match in document order, which would silently bind the Submit/
+    // Cancel handlers to the dead element instead of the visible one.
+    document.getElementById('woc-game-overlay')?.remove();
     this._gameOverlayEl  = null;
     this._gameOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
     this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
 
     if (this._gameAnchorX !== undefined) {
+      // Depth 2000 is well above anything a room can plausibly draw — rooms
+      // commonly y-sort their own art (depth = object's y, up to ROOM_H =
+      // 1200), so a low fixed depth here (the old value was 20) gets buried
+      // under room content placed at or near the same anchor point, which
+      // compounds with low contrast to make these hints unreadable.
+      const HINT_DEPTH = 2000;
+
       // Show dim hint immediately; upgrades once game module is confirmed loaded
       this._gameHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 64,
         '[E]  ???', {
-        fontSize: '13px', fill: '#888866',
-        stroke: '#000000', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(20).setVisible(false);
+        fontSize: '14px', fill: '#ffffff',
+        stroke: '#000000', strokeThickness: 4,
+        backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+      }).setOrigin(0.5).setDepth(HINT_DEPTH).setVisible(false);
 
       // Submit hint — always available so players can paste their game code
-      this._gameSubmitHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 82,
+      this._gameSubmitHint = this.add.text(this._gameAnchorX, this._gameAnchorY - 84,
         '[G]  Submit Game', {
-        fontSize: '12px', fill: '#88ccff',
-        stroke: '#000000', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(20).setVisible(false);
+        fontSize: '13px', fill: '#88ccff',
+        stroke: '#000000', strokeThickness: 4,
+        backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+      }).setOrigin(0.5).setDepth(HINT_DEPTH).setVisible(false);
     }
 
     // Load game module: prefer separate file, fall back to inline room.game export
@@ -237,8 +264,11 @@ export default class RoomScene extends Phaser.Scene {
   async _loadGameModule() {
     if (this._gameFileName) {
       try {
-        // vite-ignore: dynamic path (user-submitted game file)
-        this._gameModule = await import(/* @vite-ignore */ '/rooms/' + this._gameFileName);
+        // vite-ignore: dynamic path (user-submitted game file).
+        // ?v=gameVersion busts the browser's ES module cache — see the
+        // matching comment in WorldScene._fetchAndDrawPortals().
+        const url = '/rooms/' + this._gameFileName + (this._gameVersion ? `?v=${this._gameVersion}` : '');
+        this._gameModule = await import(/* @vite-ignore */ url);
       } catch (e) {
         console.warn('[RoomScene] Could not load game file:', this._gameFileName, e.message);
       }
@@ -251,6 +281,25 @@ export default class RoomScene extends Phaser.Scene {
       const gameName = this._gameModule.game.gameName ?? 'Mini-Game';
       this._gameHint.setText(`[E]  Play: ${gameName}`);
       this._gameHint.setStyle({ fill: '#ffdd88' });
+    }
+  }
+
+  // Re-checks the server for this slot's gameFileName and (re)loads the
+  // module if a game has since been approved. No-ops once a game is loaded,
+  // since approved games are never unapproved mid-session.
+  async _refreshGameModule() {
+    if (this._gameModule?.game || !this._roomKey) return;
+    try {
+      const res  = await fetch('/api/portal-slots');
+      const { slots } = await res.json();
+      const slot = slots.find(s => s.key === this._roomKey);
+      if (slot?.gameFileName && slot.gameVersion !== this._gameVersion) {
+        this._gameFileName = slot.gameFileName;
+        this._gameVersion  = slot.gameVersion;
+        await this._loadGameModule();
+      }
+    } catch (e) {
+      console.warn('[RoomScene] Could not refresh game module:', e.message);
     }
   }
 
@@ -325,6 +374,7 @@ export default class RoomScene extends Phaser.Scene {
   // ── Game Submit Overlay ────────────────────────────────────────────────────
   _createGameOverlay() {
     const el = document.createElement('div');
+    el.id = 'woc-game-overlay';
     el.style.cssText = [
       'position:fixed;inset:0;z-index:9999',
       'display:flex;align-items:center;justify-content:center',

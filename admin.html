@@ -442,7 +442,6 @@ async function loadPending() {
           <span class="badge" style="background:${s.kind === 'room' ? '#2a4a7f' : '#1a3a6a'};color:#aaccff">${s.kind.toUpperCase()}</span>
           <span class="badge badge-slot">${s.slotKey}</span>
           ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
-          ${s.ownerMismatch ? '<span class="badge" style="background:#6a2d2d;color:#e07a7a" title="This submission\'s signed-in account does not match the account linked to this slot">⚠ OWNER MISMATCH</span>' : ''}
           — ${new Date(s.submittedAt).toLocaleString()}
         </div>
         <div class="preview" id="preview-${s.id}">${escHtml(s.codePreview)}…</div>
