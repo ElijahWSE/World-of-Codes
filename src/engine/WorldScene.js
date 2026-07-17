@@ -13,6 +13,7 @@ import { Client } from '@colyseus/sdk';
 import { WorldState } from '../shared/schema.js';
 import { getFreshIdToken, onSessionChange } from '../auth/session.js';
 import { signOutUser } from '../auth/googleAuth.js';
+import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
 import {
   WORLD_W, WORLD_H, CITY_W, CITY_H, CITY_X0, CITY_Y0,
   HUB_BOUNDS, PLOTS, SPAWN_POINT, STREET_PROPS,
@@ -56,6 +57,10 @@ export default class WorldScene extends Phaser.Scene {
       this.playerUid      = data.uid;
       this.playerName     = String(data.displayName ?? 'Player').slice(0, 20);
       this.playerPhotoURL = data.photoURL ?? null;
+      // Present on the LoginScene/CharacterScene -> WorldScene hop. Returning
+      // from a room uses scene.wake(), which doesn't re-run init(), so this
+      // is never re-checked (or overwritten) mid-visit.
+      if (data.characterConfig) this.playerCharacterConfig = data.characterConfig;
     }
   }
 
@@ -495,8 +500,14 @@ export default class WorldScene extends Phaser.Scene {
       if (slot) { spawnX = slot.x; spawnY = slot.y + 100; }
     }
 
-    this.player = this.add.rectangle(spawnX, spawnY, 32, 32, 0x00cc44).setDepth(5);
+    this.player = createCharacter(this, this.playerCharacterConfig, spawnX, spawnY).setDepth(5);
     this.physics.add.existing(this.player);
+    // Containers have no natural width/height for Arcade physics to size a
+    // body from, unlike the placeholder rectangle this replaces — set one
+    // explicitly, centered on the container's own origin, matching the old
+    // 32x32 box so collision/portal-radius tuning elsewhere doesn't shift.
+    this.player.body.setSize(28, 28);
+    this.player.body.setOffset(-14, -14);
     this.player.body.setCollideWorldBounds(true);
 
     this.playerLabel = this.add.text(spawnX, spawnY - 24, 'You', {
@@ -549,16 +560,38 @@ export default class WorldScene extends Phaser.Scene {
             if (existing) {
               existing.body.setVisible(true);
               existing.label.setVisible(true);
+              // Position updates arrive at network tick rate, not every
+              // render frame — the moving/facingX flags recorded here are
+              // read every frame in update() below to drive the shared
+              // idle/walk/flip animation smoothly regardless of tick rate.
+              const dx = playerState.x - existing.body.x;
+              const dy = playerState.y - existing.body.y;
+              existing.moving  = dx !== 0 || dy !== 0;
+              existing.facingX = dx;
               existing.body.setPosition(playerState.x, playerState.y);
               existing.label.setPosition(playerState.x, playerState.y - 24);
               existing.body.setDepth(5 + playerState.y / 200);
               existing.label.setDepth(5.1 + playerState.y / 200);
             } else {
+              // Gray placeholder shown immediately; swapped for the real
+              // character once /api/character/:uid resolves, so a newly
+              // seen player is never invisible during that brief gap.
               const body = this.add.rectangle(playerState.x, playerState.y, 32, 32, 0x888888).setDepth(5);
               const label = this.add.text(playerState.x, playerState.y - 24, playerState.name, {
                 fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
               }).setOrigin(0.5).setDepth(15);
-              this.otherPlayers.set(sessionId, { body, label });
+              const entry = { body, label, moving: false, facingX: 0, animated: false };
+              this.otherPlayers.set(sessionId, entry);
+
+              fetchCharacterConfig(playerState.uid).then(config => {
+                // The player may have left, or the entry may have been
+                // replaced, by the time this resolves — don't resurrect it.
+                if (this.otherPlayers.get(sessionId) !== entry) return;
+                const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(entry.body.depth);
+                entry.body.destroy();
+                entry.body     = container;
+                entry.animated = true;
+              });
             }
           });
 
@@ -597,10 +630,19 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ── Update Loop ────────────────────────────────────────────────────────────
-  update() {
+  update(time, delta) {
+    // Runs unconditionally, before any local-overlay early return below —
+    // other players keep animating smoothly even while the local player has
+    // a signpost or claim form open, since they're moving independently
+    // over the network regardless of local UI state.
+    this.otherPlayers.forEach(p => {
+      if (p.animated) updateCharacter(p.body, { moving: p.moving, facingX: p.facingX, delta });
+    });
+
     // Freeze movement when sign is open or claim overlay is open
     if (this._signOpen || this._claimOpen) {
       this.player.body.setVelocity(0);
+      updateCharacter(this.player, { moving: false, delta }); // idle bob keeps playing even while frozen
       if (this._signOpen) {
         const JD = k => Phaser.Input.Keyboard.JustDown(k);
         if (JD(this._keyE) || JD(this.cursors.right)) {
@@ -628,6 +670,7 @@ export default class WorldScene extends Phaser.Scene {
     else if (this.cursors.down.isDown  || this.wasd.down.isDown)  body.setVelocityY(SPEED);
 
     body.velocity.normalize().scale(SPEED);
+    updateCharacter(this.player, { moving: body.velocity.lengthSq() > 0, facingX: body.velocity.x, delta });
 
     this.playerLabel.setPosition(this.player.x, this.player.y - 24);
     this.player.setDepth(5 + this.player.y / 200);
@@ -676,6 +719,7 @@ export default class WorldScene extends Phaser.Scene {
             returnDoor:   door.key,
             playerName:   this.playerName,
             playerUid:    this.playerUid,
+            playerCharacterConfig: this.playerCharacterConfig,
             colyseusRoom: this.colyseusRoom,
             roomKey:      door.key,
             gameFileName: door.gameFileName ?? null,

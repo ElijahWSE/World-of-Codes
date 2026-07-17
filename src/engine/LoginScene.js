@@ -56,8 +56,11 @@ export default class LoginScene extends Phaser.Scene {
       if (!res.ok) throw new Error(data.error ?? 'Verification failed');
 
       this._destroyOverlay();
-      // TODO Phase 10: route through CharacterScene first if the player has no character config yet
-      this.scene.start('WorldScene', { uid: data.uid, displayName: data.displayName, photoURL: data.photoURL });
+      const nextScene = data.characterConfig ? 'WorldScene' : 'CharacterScene';
+      this.scene.start(nextScene, {
+        uid: data.uid, displayName: data.displayName, photoURL: data.photoURL,
+        characterConfig: data.characterConfig ?? null,
+      });
     } catch (e) {
       status.style.color = '#e07a7a';
       status.textContent = e.message ?? 'Sign-in failed. Please try again.';

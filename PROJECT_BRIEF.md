@@ -12,7 +12,7 @@ There is a **shared town square** where all players can walk around and see each
 
 Beyond sharing and trying out creations, the platform is meant to encourage players to document their creative process, give and receive feedback, and optionally share their code so others can remix it. A public profile page gives each player an overview of everything they've made, without needing to walk the world to find it.
 
-**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades, stepped terrain). Phase 9 (Auth + Generalized submission system) is complete and live as of 2026-07-16, and fully closed out as of 2026-07-17 after live in-browser verification surfaced and fixed several real bugs (stale game-submit overlay, room updates not visually refreshing due to ES module caching, `[E]` staying stuck on a live-approved game, unreadable hint text, and owner-mismatch changed from a soft badge to a hard block) — see Phase 9's "Manual UI verification" note for the full list. Google Sign-In gates world entry with real `uid`/`displayName` flowing through multiplayer state; one `kind`-aware submission pipeline (`src/creation-kinds/*`) now serves both rooms and games, replacing the old duplicated pipeline, ready for Phase 11 to add `music`/`object` as new kinds without touching the pipeline itself. Phase 10 (character customization) is next up. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
+**Current status:** Phases 1–7 are complete and live. Phase 8's core town square redesign is also complete and live as of 2026-07-14 (Singapore-themed rectangular grid city, Town Garden hub, Mario-style backdrop band) — see Phase 8 below for what shipped vs. what's still planned (levels, hub-scene refactor, portal facades, stepped terrain). Phase 9 (Auth + Generalized submission system) is complete and live as of 2026-07-16, and fully closed out as of 2026-07-17 after live in-browser verification surfaced and fixed several real bugs (stale game-submit overlay, room updates not visually refreshing due to ES module caching, `[E]` staying stuck on a live-approved game, unreadable hint text, and owner-mismatch changed from a soft badge to a hard block) — see Phase 9's "Manual UI verification" note for the full list. Google Sign-In gates world entry with real `uid`/`displayName` flowing through multiplayer state; one `kind`-aware submission pipeline (`src/creation-kinds/*`) now serves both rooms and games, replacing the old duplicated pipeline, ready for Phase 11 to add `music`/`object` as new kinds without touching the pipeline itself. Phase 10 (character creator) is complete and live as of 2026-07-17 — new players design a character as a shape-recipe (validated JSON, no admin review needed) before entering the world, with a shared idle-bob/walk-cycle/direction-flip animation applied uniformly by `CharacterRenderer`; see Phase 10's "Manual verification" note for two real bugs found and fixed during testing. Phase 11 (nested creations, room music & objects) is next up. World size and movable objects, previously open questions, were resolved 2026-07-14 and are now part of Phase 8 and Phase 11's content respectively.
 
 ---
 
@@ -644,26 +644,45 @@ Why this ordering: Phase 8 (town square) has no such dependency and ran first. F
 
 ---
 
-### PHASE 10 — CHARACTER CREATOR (PLANNED, unchanged)
+### PHASE 10 — CHARACTER CREATOR ✅ COMPLETE (schema revised + built + verified 2026-07-17)
 
-Goal: New players create a custom character via Gemini prompt before entering the world. Character persists in Firestore and renders for all other players.
+Goal: New players create a custom character via Gemini prompt before entering the world. Character persists in Firestore and renders for all other players. This is deliberately kept simple — it's the first thing a new player must successfully create before they can enter the game at all, so the bar is "quick and can't fail," not maximum expressiveness. More elaborate character editing (see "Deferred" below) is a later phase, once players are already comfortable with the platform.
 
-New files to create:
-- `src/engine/CharacterScene.js` — forced lobby for new players; Gemini prompt + JSON paste + live preview + save
-- `src/engine/CharacterRenderer.js` — pure function `drawCharacter(graphics, config, x, y)` shared by all scenes
+**Schema decision (2026-07-17):** originally scoped as a fixed enum config (`bodyShape: 'round'|'square'|...`, one `accessory` slot). Revised after comparing against the hand-authored Pooh Bear character already live in `kristabelly.js` (13 layered `fillRect`/`fillCircle` calls, no sprites) — enums capped out well below that level of polish. Replaced with a **shape-recipe list**: a character is an ordered array of primitive shapes, the same technique Pooh already uses, just as data instead of hardcoded Graphics calls. This keeps the same safety profile as Phase 11's decorative objects (pure data, no executable logic, so no admin review needed — validated and rendered instantly) while reaching comparable visual detail.
 
-Files to modify:
-- `server/index.js` — `POST /api/auth/save-character` (write characterConfig to Firestore)
-- `src/engine/WorldScene.js` — use `drawCharacter()` for local + other players; fetch other players' configs via `/api/character/:uid` and cache in a Map
-- `src/engine/RoomScene.js` — same pattern; falls back to `createOtherPlayer()` if room exports it
-
-Character config (simple JSON, upgradable to free-form JS later):
+Character config:
 ```json
 {
-  "bodyColor": "#4ecdc4", "headColor": "#ffcc00", "eyeColor": "#222222",
-  "bodyShape": "round",  "accessory": "hat",  "accessoryColor": "#ff6b6b", "scale": 1.0
+  "shapes": [
+    { "type": "rect",   "x": -12, "y": -25, "w": 24, "h": 30, "color": "#1e3a8a" },
+    { "type": "circle", "x": 0,   "y": -38, "r": 12,           "color": "#ffdbac" },
+    { "type": "circle", "x": -4,  "y": -40, "r": 2,            "color": "#222222" },
+    { "type": "circle", "x": 4,   "y": -40, "r": 2,            "color": "#222222" }
+  ],
+  "scale": 1.0
 }
 ```
+- Allowed `type`: `rect`, `circle` (`triangle`/`ellipse` possible later if the vocabulary turns out too limiting in practice)
+- Shape count capped (~20) for safety/performance, not as a creative constraint — Pooh uses 13
+- `scale` clamped to a sane range (e.g. 0.8–1.3) so name-tag offset and the collision circle don't break at the extremes
+- Validated the same way rooms/games are (bounds/type checks), but since there's no logic to review, validation is synchronous and instant — no pending-queue step
+
+**Generic animation, shared by every character regardless of its shape list:** idle bob, a walk-cycle leg-swap, and a direction flip when moving left/right, all implemented once inside `CharacterRenderer` itself rather than per-character. This is what gives every character Pooh-level "aliveness" (his idle bob is one `Math.sin()` in `kristabelly.js`'s `onUpdate` today) without requiring any player to write animation logic. Not per-character customizable in this phase — a uniform baseline, deliberately, to keep character creation simple.
+
+**Live preview must be the same code path as in-game rendering**, not a separate preview-only renderer — `CharacterScene` mounts a small Phaser view that calls the exact same `CharacterRenderer.drawCharacter()` and the exact same shared animation tick that `WorldScene`/`RoomScene` use, so what's previewed is guaranteed identical to what other players will actually see. Since there's no real movement on a static creation screen to trigger the walk-cycle/flip naturally, the preview **auto-demos on a repeating loop** (walk a few steps right → flip → walk left → return to idle) with no input required, so a player sees all three animation states before ever saving.
+
+**Built:**
+- `src/engine/CharacterRenderer.js` (new) — `sanitizeConfig()` (isomorphic validation/clamping — imported directly by `server/index.js`, no Phaser dependency, same isomorphic pattern as `src/creation-kinds/*.js`), `createCharacter(scene, config, x, y)` (builds a Container + one Graphics child from the shape list), `updateCharacter(container, {moving, facingX, delta})` (the shared idle-bob/walk-cycle/direction-flip tick), `fetchCharacterConfig(uid)` (module-level cache shared across `WorldScene` and `RoomScene`, not per-scene, so a player resolved in one is never re-fetched in the other)
+- `src/engine/CharacterScene.js` (new) — forced lobby: Gemini prompt with a Copy button, JSON paste textarea, live animated preview (auto-demo loop: idle → walk right → idle → walk left → idle, repeating), Save & Enter World
+- `server/index.js` — `POST /api/auth/save-character` (re-validates with `sanitizeConfig()` before writing — never trusts a client-shaped object straight into Firestore); `GET /api/character/:uid` filled in (was a Phase 9A stub); `/api/auth/verify` now also returns `characterConfig` so `LoginScene` can decide routing without an extra round-trip
+- `src/engine/main.js` / `LoginScene.js` — `CharacterScene` registered; routes there if the signed-in account has no saved `characterConfig` yet, straight to `WorldScene` otherwise
+- `src/engine/WorldScene.js` / `RoomScene.js` — local + other players both render via `CharacterRenderer`; a room's own `createOtherPlayer()` export still takes priority over a visiting player's real character (preserves existing hand-authored rooms' visitor rendering, e.g. `kristabelly.js`'s Pooh-style residents) — but only for *other* players seen inside that specific room; it has no effect on the player's own character, in that room or anywhere else
+
+**Manual verification: ✅ complete (2026-07-17).** All 10 checklist items passed. Two real bugs were found and fixed during the pass, both regressions from this build rather than pre-existing issues:
+- **Two-account visibility** crashed the whole world for every player the instant a second account's character was still loading: `updateCharacter()` read `container.list[0]` before checking whether `container` was even a real character container. The gray placeholder shown for a brand-new player mid-fetch is a plain `Rectangle` with no `.list` property, so the very first frame after a second account joined threw `Cannot read properties of undefined`. Fixed by checking `characterAnim`/`characterConfig` before ever touching `.list`, plus an `animated` flag on both scenes' other-player entries so the update loop doesn't even attempt the call until the swap-in completes.
+- **Entering almost any room** left the player's default character orphaned in the scene — still visible, standing static, still physics-enabled — while a *different*, room-authored character (assigned via `scene.player = ...`) was the one actually moving. Root cause: `RoomScene` creates a real character container before `loadRoom()` runs, but `scene.player = /* your character container */;` is the standard pattern taught by the room-creation Gemini prompt itself (`WorldScene.js`'s Prompt 2) — 12 of 13 existing rooms use it to give the local player a themed look. `RoomScene` never accounted for the room replacing its own default. Fixed by keeping a reference to the original container and destroying it if `scene.player` no longer points to it once `loadRoom()` returns.
+
+**Deferred (not this phase):** richer per-character editing (gradients, glow presets, per-shape animation like Phase 11's decorative-object `pulse`/`rotate`/`drift`/`colorCycle`), and/or a full free-form-code character option reusing the Phase 9 creation-kind pipeline for players who want bespoke animation/behavior beyond the shared baseline. Both were discussed and intentionally punted — the former is a natural extension of the shape-recipe once it's live, the latter reintroduces admin-approval latency to something that currently gates world entry, which is a bigger structural change than Phase 10 needs.
 
 ---
 

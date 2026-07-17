@@ -12,6 +12,7 @@
 
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
+import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
 const ROOM_W = 1600; // world width — same as the town square
@@ -29,6 +30,7 @@ export default class RoomScene extends Phaser.Scene {
     this._returnDoor    = data?.returnDoor    ?? null;
     this._playerName    = data?.playerName    ?? 'You';
     this._playerUid     = data?.playerUid     ?? null;
+    this._playerCharacterConfig = data?.playerCharacterConfig ?? null;
     this._colyseusRoom  = data?.colyseusRoom  ?? null;
     this._roomKey       = data?.roomKey       ?? null;
     this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
@@ -65,8 +67,20 @@ export default class RoomScene extends Phaser.Scene {
     // ── Player sprite ─────────────────────────────────────────────────────────
     // Exposed as `scene.player` so room hooks can reference it.
     // Spawns at world centre.
-    this.player = this.add.rectangle(ROOM_W / 2, ROOM_H / 2, 32, 32, 0x00cc44).setDepth(10);
+    this.player = createCharacter(this, this._playerCharacterConfig, ROOM_W / 2, ROOM_H / 2).setDepth(10);
+    // Some rooms (e.g. elijah-worldcup-test.js) dress the local player in
+    // their own themed look by reassigning scene.player entirely inside
+    // onCreate, per the room contract's "interact only through scene" rule.
+    // If that happens below, this reference lets us clean up the character
+    // container created here — otherwise it's an orphan: still visible,
+    // still physics-enabled, just no longer driven by input or animation.
+    const defaultPlayerContainer = this.player;
     this.physics.add.existing(this.player);
+    // See WorldScene._createPlayer() for why a Container body needs an
+    // explicit size — it has no natural width/height for Arcade physics to
+    // infer one from, unlike the placeholder rectangle this replaces.
+    this.player.body.setSize(28, 28);
+    this.player.body.setOffset(-14, -14);
     this.player.body.setCollideWorldBounds(true); // can't walk off the 1600×1200 world
 
     // Camera follows the player across the large world
@@ -130,10 +144,19 @@ export default class RoomScene extends Phaser.Scene {
 
           const existing = this._roomPlayers.get(sessionId);
           if (existing) {
+            const dx = ps.roomX - existing.body.x;
+            const dy = ps.roomY - existing.body.y;
+            existing.moving  = dx !== 0 || dy !== 0;
+            existing.facingX = dx;
             existing.body.setPosition(ps.roomX, ps.roomY);
             existing.label.setPosition(ps.roomX, ps.roomY - (existing.body._labelOffsetY ?? 24));
           } else {
-            // If the room exports createOtherPlayer, use it — otherwise fall back to gray box.
+            // A room that exports its own createOtherPlayer wants full
+            // control over how visiting players look (e.g. kristabelly.js's
+            // hand-authored Pooh-style residents elsewhere in the room use
+            // this same hook) — that always wins over the player's own
+            // designed character. Rooms that don't export it get the
+            // player's real character instead of a generic gray box.
             let body;
             try {
               body = this._roomModule?.createOtherPlayer?.(this, { name: ps.name, x: ps.roomX, y: ps.roomY });
@@ -142,12 +165,25 @@ export default class RoomScene extends Phaser.Scene {
               console.error('[RoomScene] createOtherPlayer threw:', e);
               body = null;
             }
+            const usingRoomBody = !!body;
             if (!body) body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
+
             const labelOffsetY = body._labelOffsetY ?? 24;
             const label = this.add.text(ps.roomX, ps.roomY - labelOffsetY, ps.name, {
               fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
             }).setOrigin(0.5).setDepth(15);
-            this._roomPlayers.set(sessionId, { body, label });
+            const entry = { body, label, moving: false, facingX: 0, animated: false };
+            this._roomPlayers.set(sessionId, entry);
+
+            if (!usingRoomBody) {
+              fetchCharacterConfig(ps.uid).then(config => {
+                if (this._roomPlayers.get(sessionId) !== entry) return;
+                const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(10);
+                entry.body.destroy();
+                entry.body     = container;
+                entry.animated = true;
+              });
+            }
           }
         });
 
@@ -241,6 +277,12 @@ export default class RoomScene extends Phaser.Scene {
 
     this._loaded = loadRoom(this._roomModule, this);
 
+    // Clean up the orphaned default character if the room replaced
+    // scene.player with its own — see the comment where it was created.
+    if (this.player !== defaultPlayerContainer) {
+      defaultPlayerContainer.destroy();
+    }
+
     if (this._loaded) {
       // Upgrade exitRoom to call onExit before leaving.
       // Replace the default defined above so rooms that call scene.exitRoom()
@@ -304,7 +346,13 @@ export default class RoomScene extends Phaser.Scene {
   }
 
   // ── update ────────────────────────────────────────────────────────────────────
-  update() {
+  update(time, delta) {
+    // Other room players keep animating smoothly regardless of local overlay
+    // state — see the matching comment in WorldScene.update().
+    this._roomPlayers.forEach(p => {
+      if (p.animated) updateCharacter(p.body, { moving: p.moving, facingX: p.facingX, delta });
+    });
+
     // ── Player movement ───────────────────────────────────────────────────────
     const body = this.player.body;
     body.setVelocity(0);
@@ -316,6 +364,7 @@ export default class RoomScene extends Phaser.Scene {
     else if (this._cursors.down.isDown  || this._wasd.down.isDown)  body.setVelocityY(SPEED);
 
     body.velocity.normalize().scale(SPEED);
+    updateCharacter(this.player, { moving: body.velocity.lengthSq() > 0, facingX: body.velocity.x, delta });
 
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
@@ -323,6 +372,7 @@ export default class RoomScene extends Phaser.Scene {
     // ── Freeze movement while game submit overlay is open ─────────────────────
     if (this._gameOverlayOpen) {
       body.setVelocity(0);
+      updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
       return;
     }

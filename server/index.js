@@ -13,6 +13,7 @@ import { execSync } from 'child_process';
 import { tmpdir } from 'os';
 import admin from 'firebase-admin';
 import { getKind } from '../src/creation-kinds/index.js';
+import { sanitizeConfig } from '../src/engine/CharacterRenderer.js';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ROOT       = join(__dirname, '..');
@@ -249,15 +250,44 @@ const gameServer = new Server({
         const userRef = db.collection('users').doc(uid);
         await userRef.set({ displayName, email: email ?? null, photoURL: picture ?? null }, { merge: true });
         const snap = await userRef.get();
-        res.json({ ok: true, uid, displayName, photoURL: picture ?? null, slotKey: snap.data()?.slotKey ?? null });
+        res.json({
+          ok: true, uid, displayName, photoURL: picture ?? null,
+          slotKey:         snap.data()?.slotKey         ?? null,
+          // LoginScene uses this to decide whether to route through
+          // CharacterScene first or straight to WorldScene — saves a
+          // separate /api/character/:uid round-trip for your own account.
+          characterConfig: snap.data()?.characterConfig ?? null,
+        });
       } catch (e) {
         res.status(401).json({ error: 'Invalid ID token' });
       }
     });
 
-    // Stub — real character config lands in Phase 10.
-    app.get('/api/character/:uid', (_req, res) => {
-      res.json({ characterConfig: null });
+    // Other players' characters — WorldScene/RoomScene call this to render
+    // anyone who isn't the local player.
+    app.get('/api/character/:uid', async (req, res) => {
+      try {
+        const snap = await db.collection('users').doc(req.params.uid).get();
+        res.json({ characterConfig: snap.data()?.characterConfig ?? null });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Saves the signed-in player's own character config. Re-validated with
+    // the same sanitizeConfig() the client's live preview already used —
+    // never trust a client-shaped object straight into Firestore.
+    app.post('/api/auth/save-character', async (req, res) => {
+      const { idToken, config } = req.body ?? {};
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      try {
+        const { uid } = await admin.auth().verifyIdToken(idToken);
+        const characterConfig = sanitizeConfig(config);
+        await db.collection('users').doc(uid).set({ characterConfig }, { merge: true });
+        res.json({ ok: true, characterConfig });
+      } catch (e) {
+        res.status(401).json({ error: 'Invalid ID token' });
+      }
     });
 
     // Unified submission endpoint for every creation kind (room, game, and
