@@ -13,6 +13,8 @@
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
+import { createObject, updateObject } from './ObjectRenderer.js';
+import { getFreshIdToken } from '../auth/session.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
 const ROOM_W = 1600; // world width — same as the town square
@@ -41,6 +43,12 @@ export default class RoomScene extends Phaser.Scene {
     this._exited        = false;
     this._lastSentRoomX = null;
     this._lastSentRoomY = null;
+
+    // ── Objects (Phase 11) ──────────────────────────────────────────────────
+    this._objectContainers = new Map(); // id -> { data, container, hint }
+    this._isRoomOwner      = false;
+    this._objectOverlayOpen = false;
+    this._objectOverlayEl   = null;
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -104,7 +112,11 @@ export default class RoomScene extends Phaser.Scene {
     });
     this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this._keyG = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
-    this.input.keyboard.on('keydown-ESC', () => { if (this._gameOverlayOpen) this._closeGameOverlay(); });
+    this._keyO = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.O);
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this._gameOverlayOpen)   this._closeGameOverlay();
+      if (this._objectOverlayOpen) this._closeObjectOverlay();
+    });
 
     // ── Back button ───────────────────────────────────────────────────────────
     // Fixed to the screen (scrollFactor 0) and always rendered on top (depth 200).
@@ -206,7 +218,21 @@ export default class RoomScene extends Phaser.Scene {
       this._unsubSlotsUpdated = this._colyseusRoom.onMessage('slotsUpdated', () => {
         this._refreshGameModule();
       });
+
+      // Server pushes this whenever any object in this room is added, moved,
+      // or removed (by any player, in any tab) — re-fetch to stay in sync.
+      this._unsubObjectsUpdated = this._colyseusRoom.onMessage('objectsUpdated', () => {
+        this._fetchAndDrawObjects();
+      });
     }
+
+    // ── Objects (Phase 11) ────────────────────────────────────────────────────
+    this._addObjectHint = this.add.text(16, this.cameras.main.height - 16, '[O]  Add Object', {
+      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+    }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
+    this._checkOwnership();
+    this._fetchAndDrawObjects();
 
     // ── exitRoom ──────────────────────────────────────────────────────────────
     // Defined before loadRoom() is called so room hooks can reference scene.exitRoom()
@@ -218,6 +244,7 @@ export default class RoomScene extends Phaser.Scene {
       if (this._exited) return;
       this._exited = true;
       this._unsubSlotsUpdated?.();
+      this._unsubObjectsUpdated?.();
       if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
       this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
       this.scene.stop();
@@ -235,6 +262,7 @@ export default class RoomScene extends Phaser.Scene {
     // first match in document order, which would silently bind the Submit/
     // Cancel handlers to the dead element instead of the visible one.
     document.getElementById('woc-game-overlay')?.remove();
+    document.getElementById('woc-object-overlay')?.remove();
     this._gameOverlayEl  = null;
     this._gameOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
@@ -290,6 +318,7 @@ export default class RoomScene extends Phaser.Scene {
       this.exitRoom = () => {
         if (this._exited) return;
         this._exited = true;
+        this._unsubObjectsUpdated?.();
         if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
         try {
           this._roomModule.onExit(this);
@@ -345,6 +374,66 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
+  // Checks whether the local player owns this room's slot — gates the
+  // "[O] Add Object" hint. Only the room's creator can furnish it.
+  async _checkOwnership() {
+    if (!this._roomKey || !this._playerUid) return;
+    try {
+      const res   = await fetch('/api/portal-slots');
+      const { slots } = await res.json();
+      const slot  = slots.find(s => s.key === this._roomKey);
+      this._isRoomOwner = !!(slot?.uid && slot.uid === this._playerUid);
+      this._addObjectHint?.setVisible(this._isRoomOwner);
+    } catch (e) {
+      console.warn('[RoomScene] Could not check room ownership:', e.message);
+    }
+  }
+
+  // Fetches every object placed in this room and (re)builds their game
+  // objects. Safe to call repeatedly — diffs against what's already drawn
+  // rather than tearing everything down each time, so animation phase isn't
+  // reset on every 'objectsUpdated' broadcast.
+  async _fetchAndDrawObjects() {
+    if (!this._roomKey) return;
+    try {
+      const res = await fetch('/api/objects?slotKey=' + encodeURIComponent(this._roomKey));
+      const { objects } = await res.json();
+
+      for (const [id, entry] of this._objectContainers) {
+        if (!objects.find(o => o.id === id)) {
+          entry.container.destroy();
+          entry.hint?.destroy();
+          this._objectContainers.delete(id);
+        }
+      }
+
+      for (const obj of objects) {
+        // Interactive objects (real code) are Phase 11 milestone 3 — skip
+        // for now so a decorative-only room never trips over an unhandled kind.
+        if (obj.subKind !== 'decorative') continue;
+
+        let entry = this._objectContainers.get(obj.id);
+        if (!entry) {
+          const container = createObject(this, obj.shapeConfig, obj.x, obj.y).setDepth(obj.y);
+          let hint = null;
+          if (obj.linkedArtifacts?.length) {
+            hint = this.add.text(obj.x, obj.y - 40, `[E]  ${obj.linkedArtifacts[0].label}`, {
+              fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+              backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+            }).setOrigin(0.5).setDepth(2000).setVisible(false);
+          }
+          this._objectContainers.set(obj.id, { data: obj, container, hint });
+        } else {
+          entry.data = obj;
+          entry.container.setPosition(obj.x, obj.y).setDepth(obj.y);
+          entry.hint?.setPosition(obj.x, obj.y - 40);
+        }
+      }
+    } catch (e) {
+      console.warn('[RoomScene] Could not fetch objects:', e.message);
+    }
+  }
+
   // ── update ────────────────────────────────────────────────────────────────────
   update(time, delta) {
     // Other room players keep animating smoothly regardless of local overlay
@@ -369,12 +458,33 @@ export default class RoomScene extends Phaser.Scene {
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
-    // ── Freeze movement while game submit overlay is open ─────────────────────
-    if (this._gameOverlayOpen) {
+    // ── Freeze movement while an overlay is open ───────────────────────────────
+    if (this._gameOverlayOpen || this._objectOverlayOpen) {
       body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
       return;
+    }
+
+    // ── Decorative objects: animate + linked-artifact proximity ───────────────
+    // Interacting opens the link in a new tab — never in-game, since it's an
+    // unvetted external site, not a submitted/approved creation.
+    let interactedThisFrame = false;
+    for (const entry of this._objectContainers.values()) {
+      updateObject(entry.container, delta);
+      if (!entry.hint) continue;
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.data.x, entry.data.y);
+      const near = dist < 70;
+      entry.hint.setVisible(near);
+      if (near && !interactedThisFrame && Phaser.Input.Keyboard.JustDown(this._keyE)) {
+        window.open(entry.data.linkedArtifacts[0].url, '_blank', 'noopener,noreferrer');
+        interactedThisFrame = true;
+      }
+    }
+
+    // ── Add Object (room owner only) ───────────────────────────────────────────
+    if (this._isRoomOwner && Phaser.Input.Keyboard.JustDown(this._keyO)) {
+      this._openObjectOverlay();
     }
 
     // ── Game anchor proximity ─────────────────────────────────────────────────
@@ -511,6 +621,133 @@ export default class RoomScene extends Phaser.Scene {
         status.textContent = '✓ ' + (data.message ?? 'Game submitted! The admin will review it soon.');
         status.style.color = '#52b788';
         setTimeout(() => this._closeGameOverlay(), 4000);
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
+  }
+
+  // ── Add Object Overlay (Phase 11, decorative) ──────────────────────────────
+  // Decorative objects are pure data — submitted straight to
+  // /api/objects/decorative and live instantly, no admin queue. Placed at
+  // the player's current position, captured when the overlay opens.
+  _createObjectOverlay() {
+    const el = document.createElement('div');
+    el.id = 'woc-object-overlay';
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Decorative Object</h2>
+        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
+        <label style="display:block;margin-bottom:0.75rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
+          <textarea id="woc-object-config" placeholder='{"shapes":[{"type":"circle","x":0,"y":0,"r":20,"color":"#f4a261"}],"scale":1,"animation":"pulse"}'
+            style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;color:#aaa;font-size:0.85rem">
+          <input id="woc-object-movable" type="checkbox"> Movable (can be repositioned later without review)
+        </label>
+        <label style="display:block;margin-bottom:0.5rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
+          <input id="woc-object-link-label" type="text" maxlength="40" placeholder="e.g. My Portfolio Site"
+            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        </label>
+        <label style="display:block;margin-bottom:1rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact URL (optional — opens in a new tab, not embedded)</span>
+          <input id="woc-object-link-url" type="text" maxlength="500" placeholder="https://..."
+            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        </label>
+        <div id="woc-object-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-object-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-object-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Add Object</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._objectOverlayEl = el;
+    document.getElementById('woc-object-cancel').onclick = () => this._closeObjectOverlay();
+    document.getElementById('woc-object-submit').onclick = () => this._submitObjectConfig();
+  }
+
+  _openObjectOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._objectOverlayEl) this._createObjectOverlay();
+    this._objectOverlayEl.style.display = 'flex';
+    document.getElementById('woc-object-config').value     = '';
+    document.getElementById('woc-object-movable').checked  = false;
+    document.getElementById('woc-object-link-label').value = '';
+    document.getElementById('woc-object-link-url').value   = '';
+    document.getElementById('woc-object-status').textContent = '';
+    document.getElementById('woc-object-status').style.color = '#aaa';
+    document.getElementById('woc-object-submit').disabled = false;
+    document.getElementById('woc-object-config').focus();
+    // Snapshot where the player is standing right now — that's where the
+    // object gets placed once submitted.
+    this._pendingObjectX = Math.round(this.player.x);
+    this._pendingObjectY = Math.round(this.player.y);
+    this._objectOverlayOpen = true;
+  }
+
+  _closeObjectOverlay() {
+    if (this._objectOverlayEl) this._objectOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._objectOverlayOpen = false;
+  }
+
+  async _submitObjectConfig() {
+    const raw    = document.getElementById('woc-object-config').value.trim();
+    const status = document.getElementById('woc-object-status');
+    const btn    = document.getElementById('woc-object-submit');
+
+    if (!raw) { status.textContent = 'Please paste a shape config.'; status.style.color = '#e07a7a'; return; }
+    let shapeConfig;
+    try {
+      shapeConfig = JSON.parse(raw);
+    } catch (e) {
+      status.textContent = `Invalid JSON: ${e.message}`;
+      status.style.color = '#e07a7a';
+      return;
+    }
+
+    const linkLabel = document.getElementById('woc-object-link-label').value.trim();
+    const linkUrl   = document.getElementById('woc-object-link-url').value.trim();
+    const linkedArtifacts = linkUrl ? [{ label: linkLabel || 'Link', url: linkUrl }] : [];
+
+    btn.disabled = true;
+    status.textContent = 'Adding...';
+    status.style.color = '#aaa';
+
+    try {
+      const idToken = await getFreshIdToken();
+      const res  = await fetch('/api/objects/decorative', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken,
+          slotKey: this._roomKey,
+          x: this._pendingObjectX,
+          y: this._pendingObjectY,
+          movable: document.getElementById('woc-object-movable').checked,
+          shapeConfig,
+          linkedArtifacts,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Failed to add object';
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        status.textContent = '✓ Object added!';
+        status.style.color = '#52b788';
+        this._fetchAndDrawObjects();
+        setTimeout(() => this._closeObjectOverlay(), 1200);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;

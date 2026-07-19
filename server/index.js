@@ -14,15 +14,22 @@ import { tmpdir } from 'os';
 import admin from 'firebase-admin';
 import { getKind } from '../src/creation-kinds/index.js';
 import { sanitizeConfig } from '../src/engine/CharacterRenderer.js';
+import { sanitizeObjectConfig } from '../src/engine/ObjectRenderer.js';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ROOT       = join(__dirname, '..');
 const ROOMS_DIR  = join(ROOT, 'src', 'rooms');
+const OBJECTS_DIR = join(ROOT, 'src', 'objects'); // interactive-object files (Phase 11 milestone 3)
 const ADMIN_HTML = join(ROOT, 'admin.html');
 const DATA_DIR   = join(__dirname, 'data');
 const SLOTS_FILE = join(DATA_DIR, 'slots.json');
 
 const ADMIN_PASSWORD = 'worldofcodes';
+
+// Room world bounds — same size as RoomScene.js's ROOM_W/ROOM_H (and the
+// town square, per _template.js) — used only to clamp incoming object x/y.
+const ROOM_W = 1600;
+const ROOM_H = 1200;
 
 // ── Firebase Admin (Phase 9A) ─────────────────────────────────────────────────
 // Service account is never a committed file — loaded from the
@@ -45,6 +52,14 @@ const slotAssignments  = new Map();
 // submissions: Map<id, { id, kind, slotKey, uid, displayName, sessionId, code, submittedAt, isUpdate }>
 // One queue for every creation kind — see src/creation-kinds/*.js for what a kind declares.
 const submissions       = new Map();
+// objectsCache: Map<id, { id, roomSlotKey, subKind, ownerUid, x, y, movable,
+//                         linkedArtifacts, shapeConfig?, fileName?, createdAt, updatedAt }>
+// Additive store, separate from slotAssignments — objects don't fit the
+// "one file swapped wholesale" model rooms/games use (Phase 11 decision, see
+// PROJECT_BRIEF.md's Firestore scope note). Firestore is the source of
+// truth; this Map is an in-memory read cache, same role slotAssignments
+// plays for slots.json.
+const objectsCache      = new Map();
 let   worldRoomInstance = null; // set in WorldRoom.onCreate()
 
 // Load persisted slot assignments on startup
@@ -69,6 +84,17 @@ if (slotAssignments.size === 0) {
   for (const s of seeds) slotAssignments.set(s.key, { fileName: s.fileName, roomName: s.roomName, claimedBy: s.claimedBy });
   persistSlots();
   console.log('[Server] Seeded 4 default rooms into slot assignments');
+}
+
+// Load persisted objects from Firestore on startup (top-level await — this
+// module is ESM). Unlike slots.json, objects live in Firestore from day one
+// per the Phase 11 persistence decision, so there's no local-file fallback.
+try {
+  const objectsSnap = await db.collection('objects').get();
+  objectsSnap.forEach(doc => objectsCache.set(doc.id, { id: doc.id, ...doc.data() }));
+  console.log(`[Server] Loaded ${objectsCache.size} object(s) from Firestore`);
+} catch (e) {
+  console.error('[Server] Failed to load objects from Firestore:', e.message);
 }
 
 function persistSlots() {
@@ -141,6 +167,28 @@ function notifyPlayer(sessionId, type, message) {
 
 function broadcastSlotsUpdated() {
   worldRoomInstance?.broadcast('slotsUpdated', {});
+}
+
+function broadcastObjectsUpdated() {
+  worldRoomInstance?.broadcast('objectsUpdated', {});
+}
+
+// Writes through to Firestore first, then updates the read cache — so a
+// failed write never leaves the in-memory cache disagreeing with the
+// source of truth.
+async function persistObject(obj) {
+  await db.collection('objects').doc(obj.id).set(obj);
+  objectsCache.set(obj.id, obj);
+}
+
+async function deleteObjectRecord(id) {
+  await db.collection('objects').doc(id).delete();
+  objectsCache.delete(id);
+}
+
+function clampCoord(v, max) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0;
 }
 
 // ── World Room ─────────────────────────────────────────────────────────────────
@@ -287,6 +335,120 @@ const gameServer = new Server({
         res.json({ ok: true, characterConfig });
       } catch (e) {
         res.status(401).json({ error: 'Invalid ID token' });
+      }
+    });
+
+    // ── Objects (Phase 11) ──────────────────────────────────────────────────────
+    // Decorative objects are pure data — auto-approved instantly, no admin
+    // queue, no submissions entry (unlike interactive objects, which will
+    // reuse /api/submit with kind: 'object' once that sub-kind lands).
+    app.post('/api/objects/decorative', async (req, res) => {
+      const { idToken, slotKey, x, y, movable, shapeConfig, linkedArtifacts } = req.body ?? {};
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
+        return res.status(400).json({ error: 'Invalid slot' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const ownerUid = slotAssignments.get(slotKey)?.uid;
+      if (!ownerUid || uid !== ownerUid)
+        return res.status(403).json({ error: 'You do not own this room.' });
+
+      const config = sanitizeObjectConfig(shapeConfig);
+      if (config.shapes.length === 0)
+        return res.status(400).json({ error: 'Object must have at least one shape' });
+
+      const links = Array.isArray(linkedArtifacts)
+        ? linkedArtifacts.filter(a => a?.url).slice(0, 5).map(a => ({
+            label: String(a.label ?? 'Link').slice(0, 40),
+            url:   String(a.url).slice(0, 500),
+          }))
+        : [];
+
+      const id  = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const now = Date.now();
+      const obj = {
+        id, roomSlotKey: slotKey, subKind: 'decorative', ownerUid,
+        x: clampCoord(x, ROOM_W), y: clampCoord(y, ROOM_H), movable: !!movable,
+        shapeConfig: config, linkedArtifacts: links,
+        createdAt: now, updatedAt: now,
+      };
+      try {
+        await persistObject(obj);
+        broadcastObjectsUpdated();
+        console.log(`[Object] Decorative object added to ${slotKey} by ${uid}`);
+        res.json({ ok: true, id });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // All objects placed in a given room — decorative configs come back
+    // inline; interactive objects (once that sub-kind lands) will come back
+    // as { fileName, ... } for the client to dynamically import().
+    app.get('/api/objects', (req, res) => {
+      const { slotKey } = req.query;
+      if (!slotKey) return res.status(400).json({ error: 'slotKey required' });
+      const list = [...objectsCache.values()].filter(o => o.roomSlotKey === slotKey);
+      res.json({ objects: list });
+    });
+
+    // Reposition or remove an already-placed object. Never admin-reviewed —
+    // a move/delete can't introduce new code, visuals, or behavior, only
+    // relocate or remove something already approved. Owner-gated: the uid
+    // must match the object's own ownerUid, which is always set from the
+    // room creator's session at creation time.
+    app.post('/api/objects/:id/move', async (req, res) => {
+      const { idToken, x, y } = req.body ?? {};
+      const obj = objectsCache.get(req.params.id);
+      if (!obj) return res.status(404).json({ error: 'Object not found' });
+      if (!obj.movable) return res.status(400).json({ error: 'This object is not movable' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+      if (uid !== obj.ownerUid) return res.status(403).json({ error: 'You do not own this object.' });
+
+      try {
+        const updated = { ...obj, x: clampCoord(x, ROOM_W), y: clampCoord(y, ROOM_H), updatedAt: Date.now() };
+        await persistObject(updated);
+        broadcastObjectsUpdated();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    app.delete('/api/objects/:id', async (req, res) => {
+      const { idToken } = req.body ?? {};
+      const obj = objectsCache.get(req.params.id);
+      if (!obj) return res.status(404).json({ error: 'Object not found' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+      if (uid !== obj.ownerUid) return res.status(403).json({ error: 'You do not own this object.' });
+
+      try {
+        if (obj.subKind === 'interactive' && obj.fileName) {
+          try { unlinkSync(join(OBJECTS_DIR, obj.fileName)); } catch {}
+        }
+        await deleteObjectRecord(obj.id);
+        broadcastObjectsUpdated();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
       }
     });
 
