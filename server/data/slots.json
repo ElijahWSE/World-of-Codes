@@ -64,5 +64,12 @@
     "fileName": "kristabelly.js",
     "roomName": "Kristabelly",
     "claimedBy": "Kristabelly"
+  },
+  "slot45": {
+    "fileName": "elijah-worldcup-test.js",
+    "roomName": "Worldcup Test (3)",
+    "claimedBy": "Worldcup Test (3)",
+    "uid": "6EHvKQewrmdEemg5VMUc0pKvdOk1",
+    "gameFileName": "game-slot45.js"
   }
 }
