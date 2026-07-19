@@ -13,7 +13,7 @@
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
-import { createObject, updateObject } from './ObjectRenderer.js';
+import { createObject, updateObject, setObjectConfig } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
@@ -45,10 +45,12 @@ export default class RoomScene extends Phaser.Scene {
     this._lastSentRoomY = null;
 
     // ── Objects (Phase 11) ──────────────────────────────────────────────────
-    this._objectContainers = new Map(); // id -> { data, container, hint }
+    this._objectContainers = new Map(); // id -> { data, container, hint, ownerHint, draggableSetup }
     this._isRoomOwner      = false;
     this._objectOverlayOpen = false;
     this._objectOverlayEl   = null;
+    this._draggingObjectId  = null; // set while the owner is drag-moving an object (M2)
+    this._objectEditingId   = null; // set while the Add/Edit overlay is in edit mode (M2)
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -113,6 +115,8 @@ export default class RoomScene extends Phaser.Scene {
     this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this._keyG = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this._keyO = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.O);
+    this._keyC = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C); // edit object (owner)
+    this._keyX = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X); // delete object (owner)
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._gameOverlayOpen)   this._closeGameOverlay();
       if (this._objectOverlayOpen) this._closeObjectOverlay();
@@ -233,6 +237,28 @@ export default class RoomScene extends Phaser.Scene {
     }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
     this._checkOwnership();
     this._fetchAndDrawObjects();
+
+    // Movable objects (M2): scene-level drag handlers, bound once. Only
+    // containers the owner has been granted setDraggable() on (see
+    // _updateObjectInteractivity) ever fire these.
+    this.input.on('dragstart', (pointer, gameObject) => {
+      this._draggingObjectId = gameObject.objectId ?? null;
+    });
+    this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
+      const x = Phaser.Math.Clamp(dragX, 0, ROOM_W);
+      const y = Phaser.Math.Clamp(dragY, 0, ROOM_H);
+      gameObject.setPosition(x, y).setDepth(y);
+      const entry = this._objectContainers.get(gameObject.objectId);
+      if (entry) {
+        entry.data.x = x;
+        entry.data.y = y;
+        entry.hint?.setPosition(x, y - 40);
+      }
+    });
+    this.input.on('dragend', (pointer, gameObject) => {
+      this._draggingObjectId = null;
+      this._persistObjectMove(gameObject.objectId, gameObject.x, gameObject.y);
+    });
 
     // ── exitRoom ──────────────────────────────────────────────────────────────
     // Defined before loadRoom() is called so room hooks can reference scene.exitRoom()
@@ -384,8 +410,76 @@ export default class RoomScene extends Phaser.Scene {
       const slot  = slots.find(s => s.key === this._roomKey);
       this._isRoomOwner = !!(slot?.uid && slot.uid === this._playerUid);
       this._addObjectHint?.setVisible(this._isRoomOwner);
+      // Ownership resolves async and can land after objects are already
+      // drawn (see _fetchAndDrawObjects) — re-check every existing entry
+      // now that we know for sure.
+      for (const entry of this._objectContainers.values()) {
+        this._updateObjectInteractivity(entry);
+      }
     } catch (e) {
       console.warn('[RoomScene] Could not check room ownership:', e.message);
+    }
+  }
+
+  // Grants drag interactivity to an object's container, but only for the
+  // room's owner — moving someone else's placed object isn't allowed (the
+  // server's /api/objects/:id/move check would reject it anyway; this just
+  // avoids offering a drag that's guaranteed to fail). Every decorative
+  // object is movable — there's no per-object opt-out. Idempotent.
+  _updateObjectInteractivity(entry) {
+    if (!this._isRoomOwner || entry.draggableSetup) return;
+    entry.container.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-40, -40, 80, 80),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      cursor: 'grab',
+    });
+    this.input.setDraggable(entry.container);
+    entry.draggableSetup = true;
+  }
+
+  // Persists a drag-move to the server. Never admin-reviewed (see the
+  // matching server comment) — fire-and-forget from the client's point of
+  // view, except on failure, where we re-fetch to snap back to server truth
+  // rather than leaving the client showing a position that didn't save.
+  async _persistObjectMove(id, x, y) {
+    if (!id) return;
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch(`/api/objects/${id}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, x: Math.round(x), y: Math.round(y) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.warn('[RoomScene] Move failed:', data.error ?? res.status);
+        this._fetchAndDrawObjects();
+      }
+    } catch (e) {
+      console.warn('[RoomScene] Move request failed:', e.message);
+      this._fetchAndDrawObjects();
+    }
+  }
+
+  // Deletes an object. Never admin-reviewed (see the matching server
+  // comment) — a confirm() dialog is the only safeguard against a stray
+  // keypress, since there's no undo.
+  async _deleteObject(entry) {
+    if (!window.confirm('Delete this object? This cannot be undone.')) return;
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch(`/api/objects/${entry.data.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.warn('[RoomScene] Delete failed:', data.error ?? res.status);
+      }
+      this._fetchAndDrawObjects();
+    } catch (e) {
+      console.warn('[RoomScene] Delete request failed:', e.message);
     }
   }
 
@@ -403,6 +497,7 @@ export default class RoomScene extends Phaser.Scene {
         if (!objects.find(o => o.id === id)) {
           entry.container.destroy();
           entry.hint?.destroy();
+          entry.ownerHint?.destroy();
           this._objectContainers.delete(id);
         }
       }
@@ -415,6 +510,7 @@ export default class RoomScene extends Phaser.Scene {
         let entry = this._objectContainers.get(obj.id);
         if (!entry) {
           const container = createObject(this, obj.shapeConfig, obj.x, obj.y).setDepth(obj.y);
+          container.objectId = obj.id; // read by the scene-level drag handlers in create()
           let hint = null;
           if (obj.linkedArtifacts?.length) {
             hint = this.add.text(obj.x, obj.y - 40, `[E]  ${obj.linkedArtifacts[0].label}`, {
@@ -422,11 +518,49 @@ export default class RoomScene extends Phaser.Scene {
               backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
             }).setOrigin(0.5).setDepth(2000).setVisible(false);
           }
-          this._objectContainers.set(obj.id, { data: obj, container, hint });
-        } else {
+          // Owner-only edit/delete hint — created for every object (cheap,
+          // just a hidden text label) rather than gated on _isRoomOwner at
+          // creation time, since ownership resolves async and may not be
+          // known yet (see _checkOwnership). Visibility is decided per-frame
+          // in update() once ownership is settled.
+          const ownerHint = this.add.text(obj.x, obj.y - 58, '[C] Edit   [X] Delete', {
+            fontSize: '12px', fill: '#ffcc66', stroke: '#000000', strokeThickness: 4,
+            backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+          }).setOrigin(0.5).setDepth(2000).setVisible(false);
+          entry = { data: obj, container, hint, ownerHint, draggableSetup: false };
+          this._objectContainers.set(obj.id, entry);
+          this._updateObjectInteractivity(entry);
+        } else if (this._draggingObjectId !== obj.id) {
+          // Skip re-positioning the object currently being dragged — the
+          // drag handler already owns its position this frame, and this
+          // fetch may be a stale 'objectsUpdated' broadcast racing the drag.
+          const configChanged = JSON.stringify(entry.data.shapeConfig) !== JSON.stringify(obj.shapeConfig);
           entry.data = obj;
           entry.container.setPosition(obj.x, obj.y).setDepth(obj.y);
-          entry.hint?.setPosition(obj.x, obj.y - 40);
+          entry.ownerHint?.setPosition(obj.x, obj.y - 58);
+
+          // An edit ([C]) can change the shape list itself — redraw the
+          // Graphics child in place rather than assuming shapes are static
+          // once created (true before edit existed, no longer true now).
+          if (configChanged) setObjectConfig(entry.container, obj.shapeConfig);
+
+          // A link may also have been added, removed, or relabeled by an
+          // edit — sync the hint element instead of assuming it was fixed
+          // at creation time.
+          if (obj.linkedArtifacts?.length) {
+            const label = `[E]  ${obj.linkedArtifacts[0].label}`;
+            if (!entry.hint) {
+              entry.hint = this.add.text(obj.x, obj.y - 40, label, {
+                fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+                backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+              }).setOrigin(0.5).setDepth(2000).setVisible(false);
+            } else {
+              entry.hint.setText(label).setPosition(obj.x, obj.y - 40);
+            }
+          } else if (entry.hint) {
+            entry.hint.destroy();
+            entry.hint = null;
+          }
         }
       }
     } catch (e) {
@@ -458,27 +592,43 @@ export default class RoomScene extends Phaser.Scene {
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
-    // ── Freeze movement while an overlay is open ───────────────────────────────
-    if (this._gameOverlayOpen || this._objectOverlayOpen) {
+    // ── Freeze movement while an overlay is open or an object is being dragged ─
+    if (this._gameOverlayOpen || this._objectOverlayOpen || this._draggingObjectId) {
       body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
       return;
     }
 
-    // ── Decorative objects: animate + linked-artifact proximity ───────────────
-    // Interacting opens the link in a new tab — never in-game, since it's an
-    // unvetted external site, not a submitted/approved creation.
-    let interactedThisFrame = false;
+    // ── Decorative objects: animate + linked-artifact proximity + owner edit/delete ─
+    // Interacting with a link opens it in a new tab — never in-game, since
+    // it's an unvetted external site, not a submitted/approved creation.
+    let interactedThisFrame  = false;
+    let ownerActionThisFrame = false;
     for (const entry of this._objectContainers.values()) {
       updateObject(entry.container, delta);
-      if (!entry.hint) continue;
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.data.x, entry.data.y);
       const near = dist < 70;
-      entry.hint.setVisible(near);
-      if (near && !interactedThisFrame && Phaser.Input.Keyboard.JustDown(this._keyE)) {
-        window.open(entry.data.linkedArtifacts[0].url, '_blank', 'noopener,noreferrer');
-        interactedThisFrame = true;
+
+      if (entry.hint) {
+        entry.hint.setVisible(near);
+        if (near && !interactedThisFrame && Phaser.Input.Keyboard.JustDown(this._keyE)) {
+          window.open(entry.data.linkedArtifacts[0].url, '_blank', 'noopener,noreferrer');
+          interactedThisFrame = true;
+        }
+      }
+
+      if (this._isRoomOwner) {
+        entry.ownerHint?.setVisible(near);
+        if (near && !ownerActionThisFrame) {
+          if (Phaser.Input.Keyboard.JustDown(this._keyC)) {
+            this._openObjectOverlay(entry);
+            ownerActionThisFrame = true;
+          } else if (Phaser.Input.Keyboard.JustDown(this._keyX)) {
+            this._deleteObject(entry);
+            ownerActionThisFrame = true;
+          }
+        }
       }
     }
 
@@ -629,10 +779,14 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
-  // ── Add Object Overlay (Phase 11, decorative) ──────────────────────────────
+  // ── Add/Edit Object Overlay (Phase 11, decorative) ─────────────────────────
   // Decorative objects are pure data — submitted straight to
-  // /api/objects/decorative and live instantly, no admin queue. Placed at
-  // the player's current position, captured when the overlay opens.
+  // /api/objects/decorative (add) or /api/objects/:id/edit (edit) and live
+  // instantly, no admin queue. One overlay serves both: add mode is entered
+  // via [O] and places the object where the player is standing; edit mode is
+  // entered via [C] near an owned object and pre-fills its current config.
+  // Every decorative object is movable — there's no per-object opt-out, so
+  // there's no "Movable" field to show here.
   _createObjectOverlay() {
     const el = document.createElement('div');
     el.id = 'woc-object-overlay';
@@ -643,15 +797,12 @@ export default class RoomScene extends Phaser.Scene {
     ].join(';');
     el.innerHTML = `
       <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
-        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Decorative Object</h2>
-        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
+        <h2 id="woc-object-title" style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Decorative Object</h2>
+        <p id="woc-object-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
         <label style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
           <textarea id="woc-object-config" placeholder='{"shapes":[{"type":"circle","x":0,"y":0,"r":20,"color":"#f4a261"}],"scale":1,"animation":"pulse"}'
             style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
-        </label>
-        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;color:#aaa;font-size:0.85rem">
-          <input id="woc-object-movable" type="checkbox"> Movable (can be repositioned later without review)
         </label>
         <label style="display:block;margin-bottom:0.5rem">
           <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
@@ -675,20 +826,32 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-object-submit').onclick = () => this._submitObjectConfig();
   }
 
-  _openObjectOverlay() {
+  // Pass an existing entry (from the [C] proximity handler) to open in edit
+  // mode; call with no argument (as [O] does) to add a new object at the
+  // player's current position.
+  _openObjectOverlay(editEntry = null) {
     this.input.keyboard.disableGlobalCapture();
     if (!this._objectOverlayEl) this._createObjectOverlay();
     this._objectOverlayEl.style.display = 'flex';
-    document.getElementById('woc-object-config').value     = '';
-    document.getElementById('woc-object-movable').checked  = false;
-    document.getElementById('woc-object-link-label').value = '';
-    document.getElementById('woc-object-link-url').value   = '';
+
+    this._objectEditingId = editEntry?.data.id ?? null;
+    document.getElementById('woc-object-title').textContent =
+      editEntry ? 'Edit Object' : 'Add Decorative Object';
+    document.getElementById('woc-object-desc').textContent = editEntry
+      ? 'Edit this object\'s shape-config JSON or linked artifact. Saves instantly — no admin review needed for decorative objects.'
+      : 'Paste a shape-config JSON (ask Gemini to generate one from the object contract). It\'s placed where you\'re standing and appears instantly — no admin review needed for decorative objects.';
+    document.getElementById('woc-object-submit').textContent = editEntry ? 'Save Changes' : 'Add Object';
+
+    document.getElementById('woc-object-config').value =
+      editEntry ? JSON.stringify(editEntry.data.shapeConfig, null, 2) : '';
+    document.getElementById('woc-object-link-label').value = editEntry?.data.linkedArtifacts?.[0]?.label ?? '';
+    document.getElementById('woc-object-link-url').value   = editEntry?.data.linkedArtifacts?.[0]?.url   ?? '';
     document.getElementById('woc-object-status').textContent = '';
     document.getElementById('woc-object-status').style.color = '#aaa';
     document.getElementById('woc-object-submit').disabled = false;
     document.getElementById('woc-object-config').focus();
-    // Snapshot where the player is standing right now — that's where the
-    // object gets placed once submitted.
+    // Snapshot where the player is standing right now — used only in add
+    // mode, as the new object's placement.
     this._pendingObjectX = Math.round(this.player.x);
     this._pendingObjectY = Math.round(this.player.y);
     this._objectOverlayOpen = true;
@@ -698,12 +861,14 @@ export default class RoomScene extends Phaser.Scene {
     if (this._objectOverlayEl) this._objectOverlayEl.style.display = 'none';
     this.input.keyboard.enableGlobalCapture();
     this._objectOverlayOpen = false;
+    this._objectEditingId   = null;
   }
 
   async _submitObjectConfig() {
     const raw    = document.getElementById('woc-object-config').value.trim();
     const status = document.getElementById('woc-object-status');
     const btn    = document.getElementById('woc-object-submit');
+    const editingId = this._objectEditingId;
 
     if (!raw) { status.textContent = 'Please paste a shape config.'; status.style.color = '#e07a7a'; return; }
     let shapeConfig;
@@ -720,31 +885,27 @@ export default class RoomScene extends Phaser.Scene {
     const linkedArtifacts = linkUrl ? [{ label: linkLabel || 'Link', url: linkUrl }] : [];
 
     btn.disabled = true;
-    status.textContent = 'Adding...';
+    status.textContent = editingId ? 'Saving...' : 'Adding...';
     status.style.color = '#aaa';
 
     try {
       const idToken = await getFreshIdToken();
-      const res  = await fetch('/api/objects/decorative', {
+      const url  = editingId ? `/api/objects/${editingId}/edit` : '/api/objects/decorative';
+      const body = editingId
+        ? { idToken, shapeConfig, linkedArtifacts }
+        : { idToken, slotKey: this._roomKey, x: this._pendingObjectX, y: this._pendingObjectY, shapeConfig, linkedArtifacts };
+      const res  = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idToken,
-          slotKey: this._roomKey,
-          x: this._pendingObjectX,
-          y: this._pendingObjectY,
-          movable: document.getElementById('woc-object-movable').checked,
-          shapeConfig,
-          linkedArtifacts,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
-        status.textContent = data.error ?? 'Failed to add object';
+        status.textContent = data.error ?? (editingId ? 'Failed to save object' : 'Failed to add object');
         status.style.color = '#e07a7a';
         btn.disabled = false;
       } else {
-        status.textContent = '✓ Object added!';
+        status.textContent = editingId ? '✓ Saved!' : '✓ Object added!';
         status.style.color = '#52b788';
         this._fetchAndDrawObjects();
         setTimeout(() => this._closeObjectOverlay(), 1200);

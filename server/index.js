@@ -343,7 +343,7 @@ const gameServer = new Server({
     // queue, no submissions entry (unlike interactive objects, which will
     // reuse /api/submit with kind: 'object' once that sub-kind lands).
     app.post('/api/objects/decorative', async (req, res) => {
-      const { idToken, slotKey, x, y, movable, shapeConfig, linkedArtifacts } = req.body ?? {};
+      const { idToken, slotKey, x, y, shapeConfig, linkedArtifacts } = req.body ?? {};
       if (!idToken) return res.status(400).json({ error: 'ID token required' });
       if (!PORTAL_SLOTS.find(s => s.key === slotKey))
         return res.status(400).json({ error: 'Invalid slot' });
@@ -373,8 +373,12 @@ const gameServer = new Server({
       const id  = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const now = Date.now();
       const obj = {
+        // Every decorative object is movable — there's no per-object opt-out
+        // (a move/delete can't introduce new code or visuals, so there's
+        // nothing to gate). The field stays in the schema for interactive
+        // objects (Phase 11 milestone 3), which may need the distinction.
         id, roomSlotKey: slotKey, subKind: 'decorative', ownerUid,
-        x: clampCoord(x, ROOM_W), y: clampCoord(y, ROOM_H), movable: !!movable,
+        x: clampCoord(x, ROOM_W), y: clampCoord(y, ROOM_H), movable: true,
         shapeConfig: config, linkedArtifacts: links,
         createdAt: now, updatedAt: now,
       };
@@ -407,7 +411,6 @@ const gameServer = new Server({
       const { idToken, x, y } = req.body ?? {};
       const obj = objectsCache.get(req.params.id);
       if (!obj) return res.status(404).json({ error: 'Object not found' });
-      if (!obj.movable) return res.status(400).json({ error: 'This object is not movable' });
       if (!idToken) return res.status(400).json({ error: 'ID token required' });
       let uid;
       try {
@@ -419,6 +422,47 @@ const gameServer = new Server({
 
       try {
         const updated = { ...obj, x: clampCoord(x, ROOM_W), y: clampCoord(y, ROOM_H), updatedAt: Date.now() };
+        await persistObject(updated);
+        broadcastObjectsUpdated();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Edits an already-placed decorative object's shape config and/or linked
+    // artifact. Same "never admin-reviewed" rationale as move/delete — it's
+    // still pure data, so it can't introduce new code or bypass review, only
+    // change what shapes/colors/links an already-approved object shows.
+    // Owner-gated exactly like move/delete.
+    app.post('/api/objects/:id/edit', async (req, res) => {
+      const { idToken, shapeConfig, linkedArtifacts } = req.body ?? {};
+      const obj = objectsCache.get(req.params.id);
+      if (!obj) return res.status(404).json({ error: 'Object not found' });
+      if (obj.subKind !== 'decorative')
+        return res.status(400).json({ error: 'Only decorative objects can be edited this way' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+      if (uid !== obj.ownerUid) return res.status(403).json({ error: 'You do not own this object.' });
+
+      const config = sanitizeObjectConfig(shapeConfig);
+      if (config.shapes.length === 0)
+        return res.status(400).json({ error: 'Object must have at least one shape' });
+
+      const links = Array.isArray(linkedArtifacts)
+        ? linkedArtifacts.filter(a => a?.url).slice(0, 5).map(a => ({
+            label: String(a.label ?? 'Link').slice(0, 40),
+            url:   String(a.url).slice(0, 500),
+          }))
+        : [];
+
+      try {
+        const updated = { ...obj, shapeConfig: config, linkedArtifacts: links, updatedAt: Date.now() };
         await persistObject(updated);
         broadcastObjectsUpdated();
         res.json({ ok: true });

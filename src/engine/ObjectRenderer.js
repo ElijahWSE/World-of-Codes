@@ -170,6 +170,18 @@ export function createObject(scene, rawConfig, x = 0, y = 0) {
   return container;
 }
 
+// Redraws an already-created object's container in place with a new raw
+// config — used when an owner edits a placed object's shapes/scale/animation.
+// Reuses the same Container + Graphics child rather than recreating them, so
+// drag-interactivity already set up on the container (see RoomScene's
+// _updateObjectInteractivity) isn't lost.
+export function setObjectConfig(container, rawConfig) {
+  const config = sanitizeObjectConfig(rawConfig);
+  container.objectConfig = config;
+  const gfx = container.list[0];
+  if (gfx) drawShapes(gfx, config);
+}
+
 // Call every frame from the owning scene's update(). No-ops for objects
 // with animation: 'none' (the common case — most decor is static).
 export function updateObject(container, delta) {
