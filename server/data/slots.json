@@ -70,6 +70,8 @@
     "roomName": "Worldcup Test (3)",
     "claimedBy": "Worldcup Test (3)",
     "uid": "6EHvKQewrmdEemg5VMUc0pKvdOk1",
-    "gameFileName": "game-slot45.js"
+    "gameFileName": "game-slot45.js",
+    "musicFileName": "music-slot45.js",
+    "musicVersion": 1784554407020
   }
 }
