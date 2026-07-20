@@ -13,7 +13,7 @@
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
-import { createObject, updateObject, setObjectConfig } from './ObjectRenderer.js';
+import { createObject, updateObject, setObjectConfig, OBJECT_LIMITS } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
@@ -38,6 +38,9 @@ export default class RoomScene extends Phaser.Scene {
     this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
     this._gameVersion   = data?.gameVersion   ?? null;  // cache-buster for the import() below
     this._gameModule    = null;                          // loaded dynamically in create()
+    this._musicFileName = data?.musicFileName ?? null;  // room music file (Phase 11 milestone 4)
+    this._musicVersion  = data?.musicVersion  ?? null;  // cache-buster for the import() below
+    this._musicModule   = null;                          // loaded dynamically in create()
     this._roomUpdate    = null;
     this._loaded        = false;
     this._exited        = false;
@@ -45,12 +48,27 @@ export default class RoomScene extends Phaser.Scene {
     this._lastSentRoomY = null;
 
     // ── Objects (Phase 11) ──────────────────────────────────────────────────
-    this._objectContainers = new Map(); // id -> { data, container, hint, ownerHint, draggableSetup }
+    // Decorative entries: { data, subKind:'decorative', container, hint, ownerHint, draggableSetup }
+    // Interactive entries (M3): { data, subKind:'interactive', mod, ctx, hint, ownerHint }
+    // — no container/draggableSetup, since interactive object code owns its
+    // own scene.add.* visuals directly rather than handing the engine one
+    // Container it can drag.
+    this._objectContainers = new Map();
     this._isRoomOwner      = false;
     this._objectOverlayOpen = false;
     this._objectOverlayEl   = null;
     this._draggingObjectId  = null; // set while the owner is drag-moving an object (M2)
     this._objectEditingId   = null; // set while the Add/Edit overlay is in edit mode (M2)
+    this._objectMode        = 'decorative'; // Add Object overlay toggle: 'decorative' | 'interactive' (M3)
+
+    // ── Music submission (Phase 11 milestone 4) ─────────────────────────────
+    this._musicOverlayEl   = null;
+    this._musicOverlayOpen = false;
+
+    // ── In-room Help overlay (Phase 11, player guide) ───────────────────────
+    this._helpOverlayEl   = null;
+    this._helpOverlayOpen = false;
+    this._helpPage        = 0;
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -117,9 +135,13 @@ export default class RoomScene extends Phaser.Scene {
     this._keyO = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.O);
     this._keyC = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C); // edit object (owner)
     this._keyX = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X); // delete object (owner)
+    this._keyM = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M); // submit music (owner)
+    this._keyH = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.H); // in-room help (anyone)
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._gameOverlayOpen)   this._closeGameOverlay();
       if (this._objectOverlayOpen) this._closeObjectOverlay();
+      if (this._musicOverlayOpen)  this._closeMusicOverlay();
+      if (this._helpOverlayOpen)   this._closeHelpOverlay();
     });
 
     // ── Back button ───────────────────────────────────────────────────────────
@@ -221,6 +243,7 @@ export default class RoomScene extends Phaser.Scene {
       // would say "???" forever without this.
       this._unsubSlotsUpdated = this._colyseusRoom.onMessage('slotsUpdated', () => {
         this._refreshGameModule();
+        this._refreshMusicModule();
       });
 
       // Server pushes this whenever any object in this room is added, moved,
@@ -235,6 +258,24 @@ export default class RoomScene extends Phaser.Scene {
       fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
       backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
     }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
+
+    // ── Room music submit hint (Phase 11 milestone 4) ───────────────────────
+    // Ambient, owner-only, no anchor — stacked directly above [O] Add Object
+    // so the two owner hints don't overlap.
+    this._addMusicHint = this.add.text(16, this.cameras.main.height - 40, '[M]  Submit Music', {
+      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+    }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
+
+    // ── In-room Help hint (player guide) ─────────────────────────────────────
+    // Visible to anyone (owner or visitor) — pure reference content, no
+    // server writes, so no ownership gate. Top-right, clear of the top-left
+    // Back button and the bottom-left owner hints.
+    this._helpHint = this.add.text(this.cameras.main.width - 16, 16, '[H]  Help', {
+      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(200);
+
     this._checkOwnership();
     this._fetchAndDrawObjects();
 
@@ -271,6 +312,9 @@ export default class RoomScene extends Phaser.Scene {
       this._exited = true;
       this._unsubSlotsUpdated?.();
       this._unsubObjectsUpdated?.();
+      try { this._musicModule?.music?.stop?.(this); } catch (err) {
+        console.error('[RoomScene] music.stop threw:', err);
+      }
       if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
       this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
       this.scene.stop();
@@ -289,8 +333,14 @@ export default class RoomScene extends Phaser.Scene {
     // Cancel handlers to the dead element instead of the visible one.
     document.getElementById('woc-game-overlay')?.remove();
     document.getElementById('woc-object-overlay')?.remove();
+    document.getElementById('woc-music-overlay')?.remove();
+    document.getElementById('woc-help-overlay')?.remove();
     this._gameOverlayEl  = null;
     this._gameOverlayOpen = false;
+    this._musicOverlayEl  = null;
+    this._musicOverlayOpen = false;
+    this._helpOverlayEl   = null;
+    this._helpOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
     this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
 
@@ -322,6 +372,9 @@ export default class RoomScene extends Phaser.Scene {
     // Load game module: prefer separate file, fall back to inline room.game export
     this._loadGameModule();
 
+    // Load and start this room's music, if any (Phase 11 milestone 4)
+    this._loadMusicModule();
+
     // ── Load room ─────────────────────────────────────────────────────────────
     if (!this._roomModule) {
       // No room was passed — show a clear error (shouldn't happen in normal use).
@@ -345,6 +398,9 @@ export default class RoomScene extends Phaser.Scene {
         if (this._exited) return;
         this._exited = true;
         this._unsubObjectsUpdated?.();
+        try { this._musicModule?.music?.stop?.(this); } catch (err) {
+          console.error('[RoomScene] music.stop threw:', err);
+        }
         if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
         try {
           this._roomModule.onExit(this);
@@ -400,6 +456,47 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
+  // Loads and starts this room's music, if any (Phase 11 milestone 4).
+  // Music is ambient, one track per room — dynamically imported from
+  // /rooms/ the same way games are, then play(scene) is called once.
+  async _loadMusicModule() {
+    if (!this._musicFileName) return;
+    try {
+      // ?v=musicVersion busts the browser's ES module cache — same reason
+      // as the game/room cache-busting elsewhere in this file.
+      const url = '/rooms/' + this._musicFileName + (this._musicVersion ? `?v=${this._musicVersion}` : '');
+      this._musicModule = await import(/* @vite-ignore */ url);
+      try { this._musicModule?.music?.play(this); } catch (err) {
+        console.error('[RoomScene] music.play threw:', err);
+      }
+    } catch (e) {
+      console.warn('[RoomScene] Could not load music file:', this._musicFileName, e.message);
+    }
+  }
+
+  // Re-checks the server for this slot's musicFileName and swaps to the new
+  // track if it changed (e.g. the owner just updated their music while
+  // standing in the room) — stops the old track first so two tracks never
+  // play at once.
+  async _refreshMusicModule() {
+    if (!this._roomKey) return;
+    try {
+      const res  = await fetch('/api/portal-slots');
+      const { slots } = await res.json();
+      const slot = slots.find(s => s.key === this._roomKey);
+      if (slot?.musicFileName && slot.musicVersion !== this._musicVersion) {
+        try { this._musicModule?.music?.stop?.(this); } catch (err) {
+          console.error('[RoomScene] music.stop threw:', err);
+        }
+        this._musicFileName = slot.musicFileName;
+        this._musicVersion  = slot.musicVersion;
+        await this._loadMusicModule();
+      }
+    } catch (e) {
+      console.warn('[RoomScene] Could not refresh music module:', e.message);
+    }
+  }
+
   // Checks whether the local player owns this room's slot — gates the
   // "[O] Add Object" hint. Only the room's creator can furnish it.
   async _checkOwnership() {
@@ -410,6 +507,7 @@ export default class RoomScene extends Phaser.Scene {
       const slot  = slots.find(s => s.key === this._roomKey);
       this._isRoomOwner = !!(slot?.uid && slot.uid === this._playerUid);
       this._addObjectHint?.setVisible(this._isRoomOwner);
+      this._addMusicHint?.setVisible(this._isRoomOwner);
       // Ownership resolves async and can land after objects are already
       // drawn (see _fetchAndDrawObjects) — re-check every existing entry
       // now that we know for sure.
@@ -427,6 +525,9 @@ export default class RoomScene extends Phaser.Scene {
   // avoids offering a drag that's guaranteed to fail). Every decorative
   // object is movable — there's no per-object opt-out. Idempotent.
   _updateObjectInteractivity(entry) {
+    // Interactive objects have no single container the engine can drag —
+    // see the _objectContainers comment in init(). Not draggable in M3.
+    if (entry.subKind === 'interactive') return;
     if (!this._isRoomOwner || entry.draggableSetup) return;
     entry.container.setInteractive({
       hitArea: new Phaser.Geom.Rectangle(-40, -40, 80, 80),
@@ -495,7 +596,17 @@ export default class RoomScene extends Phaser.Scene {
 
       for (const [id, entry] of this._objectContainers) {
         if (!objects.find(o => o.id === id)) {
-          entry.container.destroy();
+          // Interactive objects get one last chance to clean up any
+          // scene.add.* visuals they created beyond what's tracked on ctx —
+          // there's no onExit-equivalent lifecycle otherwise (see the
+          // object contract's optional onRemove hook).
+          if (entry.subKind === 'interactive') {
+            try { entry.mod.onRemove?.(this, entry.ctx); } catch (err) {
+              console.error(`[RoomScene] Object ${id} onRemove threw:`, err);
+            }
+          } else {
+            entry.container.destroy();
+          }
           entry.hint?.destroy();
           entry.ownerHint?.destroy();
           this._objectContainers.delete(id);
@@ -503,11 +614,30 @@ export default class RoomScene extends Phaser.Scene {
       }
 
       for (const obj of objects) {
-        // Interactive objects (real code) are Phase 11 milestone 3 — skip
-        // for now so a decorative-only room never trips over an unhandled kind.
-        if (obj.subKind !== 'decorative') continue;
-
         let entry = this._objectContainers.get(obj.id);
+
+        if (obj.subKind === 'interactive') {
+          if (entry) continue; // already loaded — interactive objects are create-only, nothing to diff/redraw
+          try {
+            const mod = await import(/* @vite-ignore */ '/objects/' + obj.fileName + '?v=' + (obj.updatedAt || obj.createdAt));
+            const ctx = { x: obj.x, y: obj.y, id: obj.id };
+            mod.onLoad?.(this);
+            mod.onCreate(this, ctx);
+            const hint = this.add.text(obj.x, obj.y - 40, '[E]  Interact', {
+              fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+              backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+            }).setOrigin(0.5).setDepth(2000).setVisible(false);
+            const ownerHint = this.add.text(obj.x, obj.y - 58, '[X] Delete', {
+              fontSize: '12px', fill: '#ffcc66', stroke: '#000000', strokeThickness: 4,
+              backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+            }).setOrigin(0.5).setDepth(2000).setVisible(false);
+            this._objectContainers.set(obj.id, { data: obj, subKind: 'interactive', mod, ctx, hint, ownerHint });
+          } catch (err) {
+            console.error(`[RoomScene] Failed to load interactive object ${obj.id} (${obj.fileName}):`, err);
+          }
+          continue;
+        }
+
         if (!entry) {
           const container = createObject(this, obj.shapeConfig, obj.x, obj.y).setDepth(obj.y);
           container.objectId = obj.id; // read by the scene-level drag handlers in create()
@@ -527,7 +657,7 @@ export default class RoomScene extends Phaser.Scene {
             fontSize: '12px', fill: '#ffcc66', stroke: '#000000', strokeThickness: 4,
             backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
           }).setOrigin(0.5).setDepth(2000).setVisible(false);
-          entry = { data: obj, container, hint, ownerHint, draggableSetup: false };
+          entry = { data: obj, subKind: 'decorative', container, hint, ownerHint, draggableSetup: false };
           this._objectContainers.set(obj.id, entry);
           this._updateObjectInteractivity(entry);
         } else if (this._draggingObjectId !== obj.id) {
@@ -592,23 +722,57 @@ export default class RoomScene extends Phaser.Scene {
     // Floating name tag follows the player
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
+    // ── In-room Help toggle (anyone) — checked before the freeze-return below
+    // so [H] can close the overlay it just opened, not just open it.
+    if (Phaser.Input.Keyboard.JustDown(this._keyH)) {
+      if (this._helpOverlayOpen) this._closeHelpOverlay();
+      else if (!this._gameOverlayOpen && !this._objectOverlayOpen && !this._musicOverlayOpen) this._openHelpOverlay();
+    }
+
     // ── Freeze movement while an overlay is open or an object is being dragged ─
-    if (this._gameOverlayOpen || this._objectOverlayOpen || this._draggingObjectId) {
+    if (this._gameOverlayOpen || this._objectOverlayOpen || this._musicOverlayOpen || this._helpOverlayOpen || this._draggingObjectId) {
       body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
       return;
     }
 
-    // ── Decorative objects: animate + linked-artifact proximity + owner edit/delete ─
-    // Interacting with a link opens it in a new tab — never in-game, since
-    // it's an unvetted external site, not a submitted/approved creation.
+    // ── Objects: animate/tick + proximity interact + owner edit/delete ────────
+    // Decorative: [E] near a linkedArtifacts object opens it in a new tab —
+    // never in-game, since it's an unvetted external site, not a submitted/
+    // approved creation. Interactive (M3): [E] calls the object's own
+    // onInteract hook instead — its code is already admin-reviewed, so it's
+    // trusted to decide what happens.
     let interactedThisFrame  = false;
     let ownerActionThisFrame = false;
     for (const entry of this._objectContainers.values()) {
-      updateObject(entry.container, delta);
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.data.x, entry.data.y);
       const near = dist < 70;
+
+      if (entry.subKind === 'interactive') {
+        try { entry.mod.onUpdate(this, entry.ctx); } catch (err) {
+          console.error(`[RoomScene] Object ${entry.data.id} onUpdate threw:`, err);
+        }
+
+        entry.hint?.setVisible(near);
+        if (near && !interactedThisFrame && Phaser.Input.Keyboard.JustDown(this._keyE)) {
+          try { entry.mod.onInteract(this, entry.ctx); } catch (err) {
+            console.error(`[RoomScene] Object ${entry.data.id} onInteract threw:`, err);
+          }
+          interactedThisFrame = true;
+        }
+
+        if (this._isRoomOwner) {
+          entry.ownerHint?.setVisible(near);
+          if (near && !ownerActionThisFrame && Phaser.Input.Keyboard.JustDown(this._keyX)) {
+            this._deleteObject(entry);
+            ownerActionThisFrame = true;
+          }
+        }
+        continue;
+      }
+
+      updateObject(entry.container, delta);
 
       if (entry.hint) {
         entry.hint.setVisible(near);
@@ -635,6 +799,11 @@ export default class RoomScene extends Phaser.Scene {
     // ── Add Object (room owner only) ───────────────────────────────────────────
     if (this._isRoomOwner && Phaser.Input.Keyboard.JustDown(this._keyO)) {
       this._openObjectOverlay();
+    }
+
+    // ── Submit Music (room owner only) ─────────────────────────────────────────
+    if (this._isRoomOwner && Phaser.Input.Keyboard.JustDown(this._keyM)) {
+      this._openMusicOverlay();
     }
 
     // ── Game anchor proximity ─────────────────────────────────────────────────
@@ -779,12 +948,15 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
-  // ── Add/Edit Object Overlay (Phase 11, decorative) ─────────────────────────
+  // ── Add/Edit Object Overlay (Phase 11) ──────────────────────────────────────
   // Decorative objects are pure data — submitted straight to
   // /api/objects/decorative (add) or /api/objects/:id/edit (edit) and live
-  // instantly, no admin queue. One overlay serves both: add mode is entered
-  // via [O] and places the object where the player is standing; edit mode is
-  // entered via [C] near an owned object and pre-fills its current config.
+  // instantly, no admin queue. Interactive objects (M3) are real code —
+  // submitted via /api/submit like a room/game and go through admin review.
+  // One overlay serves both, switched by a mode toggle: add mode is entered
+  // via [O] and places the object where the player is standing; edit mode
+  // (decorative only — interactive objects are create-only this milestone)
+  // is entered via [C] near an owned object and pre-fills its current config.
   // Every decorative object is movable — there's no per-object opt-out, so
   // there's no "Movable" field to show here.
   _createObjectOverlay() {
@@ -797,23 +969,34 @@ export default class RoomScene extends Phaser.Scene {
     ].join(';');
     el.innerHTML = `
       <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
-        <h2 id="woc-object-title" style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Decorative Object</h2>
+        <h2 id="woc-object-title" style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Object</h2>
+        <div id="woc-object-mode-row" style="display:flex;gap:0.5rem;margin-bottom:1rem">
+          <button id="woc-object-mode-decorative" style="flex:1;padding:0.4rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Decorative</button>
+          <button id="woc-object-mode-interactive" style="flex:1;padding:0.4rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Interactive</button>
+        </div>
         <p id="woc-object-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
-        <label style="display:block;margin-bottom:0.75rem">
+        <label id="woc-object-config-label" style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
           <textarea id="woc-object-config" placeholder='{"shapes":[{"type":"circle","x":0,"y":0,"r":20,"color":"#f4a261"}],"scale":1,"animation":"pulse"}'
             style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
-        <label style="display:block;margin-bottom:0.5rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
-          <input id="woc-object-link-label" type="text" maxlength="40" placeholder="e.g. My Portfolio Site"
-            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        <label id="woc-object-code-label" style="display:none;margin-bottom:0.75rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Object Code (paste from Gemini, generated against src/objects/_template.js)</span>
+          <textarea id="woc-object-code" placeholder="// Paste your interactive object code here..."
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
-        <label style="display:block;margin-bottom:1rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact URL (optional — opens in a new tab, not embedded)</span>
-          <input id="woc-object-link-url" type="text" maxlength="500" placeholder="https://..."
-            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
-        </label>
+        <div id="woc-object-links">
+          <label style="display:block;margin-bottom:0.5rem">
+            <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
+            <input id="woc-object-link-label" type="text" maxlength="40" placeholder="e.g. My Portfolio Site"
+              style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+          </label>
+          <label style="display:block;margin-bottom:1rem">
+            <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact URL (optional — opens in a new tab, not embedded)</span>
+            <input id="woc-object-link-url" type="text" maxlength="500" placeholder="https://..."
+              style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+          </label>
+        </div>
         <div id="woc-object-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
           <button id="woc-object-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
@@ -824,6 +1007,28 @@ export default class RoomScene extends Phaser.Scene {
     this._objectOverlayEl = el;
     document.getElementById('woc-object-cancel').onclick = () => this._closeObjectOverlay();
     document.getElementById('woc-object-submit').onclick = () => this._submitObjectConfig();
+    document.getElementById('woc-object-mode-decorative').onclick  = () => this._setObjectMode('decorative');
+    document.getElementById('woc-object-mode-interactive').onclick = () => this._setObjectMode('interactive');
+  }
+
+  // Switches the overlay between Decorative (shape-config JSON, instant, no
+  // review) and Interactive (real code, goes through /api/submit + admin
+  // review) — only reachable in add mode, since edit only supports
+  // decorative objects this milestone (see _openObjectOverlay).
+  _setObjectMode(mode) {
+    this._objectMode = mode;
+    const decorative = mode === 'decorative';
+    document.getElementById('woc-object-config-label').style.display = decorative ? 'block' : 'none';
+    document.getElementById('woc-object-code-label').style.display   = decorative ? 'none' : 'block';
+    document.getElementById('woc-object-links').style.display        = decorative ? 'block' : 'none';
+    document.getElementById('woc-object-mode-decorative').style.background  = decorative ? '#88ccff' : '#1a4a7f';
+    document.getElementById('woc-object-mode-decorative').style.color       = decorative ? '#0d1b2e' : '#e0e0e0';
+    document.getElementById('woc-object-mode-interactive').style.background = decorative ? '#1a4a7f' : '#88ccff';
+    document.getElementById('woc-object-mode-interactive').style.color      = decorative ? '#e0e0e0' : '#0d1b2e';
+    document.getElementById('woc-object-desc').textContent = decorative
+      ? 'Paste a shape-config JSON (ask Gemini to generate one from the object contract). It\'s placed where you\'re standing and appears instantly — no admin review needed for decorative objects.'
+      : 'Paste interactive object code (ask Gemini to generate one from src/objects/_template.js). Submitted for admin review, same as a room or game — the admin reviews just this object, never your whole room.';
+    document.getElementById('woc-object-submit').textContent = decorative ? 'Add Object' : 'Submit Object';
   }
 
   // Pass an existing entry (from the [C] proximity handler) to open in edit
@@ -835,15 +1040,22 @@ export default class RoomScene extends Phaser.Scene {
     this._objectOverlayEl.style.display = 'flex';
 
     this._objectEditingId = editEntry?.data.id ?? null;
-    document.getElementById('woc-object-title').textContent =
-      editEntry ? 'Edit Object' : 'Add Decorative Object';
-    document.getElementById('woc-object-desc').textContent = editEntry
-      ? 'Edit this object\'s shape-config JSON or linked artifact. Saves instantly — no admin review needed for decorative objects.'
-      : 'Paste a shape-config JSON (ask Gemini to generate one from the object contract). It\'s placed where you\'re standing and appears instantly — no admin review needed for decorative objects.';
+    // Editing only ever applies to decorative objects — force the mode
+    // toggle into Decorative and hide it entirely while editing, since
+    // switching modes mid-edit makes no sense.
+    document.getElementById('woc-object-mode-row').style.display = editEntry ? 'none' : 'flex';
+    this._setObjectMode('decorative');
+
+    document.getElementById('woc-object-title').textContent = editEntry ? 'Edit Object' : 'Add Object';
+    if (editEntry) {
+      document.getElementById('woc-object-desc').textContent =
+        'Edit this object\'s shape-config JSON or linked artifact. Saves instantly — no admin review needed for decorative objects.';
+    }
     document.getElementById('woc-object-submit').textContent = editEntry ? 'Save Changes' : 'Add Object';
 
     document.getElementById('woc-object-config').value =
       editEntry ? JSON.stringify(editEntry.data.shapeConfig, null, 2) : '';
+    document.getElementById('woc-object-code').value = '';
     document.getElementById('woc-object-link-label').value = editEntry?.data.linkedArtifacts?.[0]?.label ?? '';
     document.getElementById('woc-object-link-url').value   = editEntry?.data.linkedArtifacts?.[0]?.url   ?? '';
     document.getElementById('woc-object-status').textContent = '';
@@ -865,11 +1077,16 @@ export default class RoomScene extends Phaser.Scene {
   }
 
   async _submitObjectConfig() {
-    const raw    = document.getElementById('woc-object-config').value.trim();
     const status = document.getElementById('woc-object-status');
     const btn    = document.getElementById('woc-object-submit');
     const editingId = this._objectEditingId;
 
+    if (!editingId && this._objectMode === 'interactive') {
+      await this._submitInteractiveObject();
+      return;
+    }
+
+    const raw = document.getElementById('woc-object-config').value.trim();
     if (!raw) { status.textContent = 'Please paste a shape config.'; status.style.color = '#e07a7a'; return; }
     let shapeConfig;
     try {
@@ -915,5 +1132,425 @@ export default class RoomScene extends Phaser.Scene {
       status.style.color = '#e07a7a';
       btn.disabled = false;
     }
+  }
+
+  // Interactive objects are real code — go through the same /api/submit +
+  // admin-review pipeline rooms/games already use, reviewed as their own
+  // isolated unit (approving it never touches the room itself).
+  async _submitInteractiveObject() {
+    const code   = document.getElementById('woc-object-code').value.trim();
+    const status = document.getElementById('woc-object-status');
+    const btn    = document.getElementById('woc-object-submit');
+
+    if (!code) { status.textContent = 'Please paste your object code.'; status.style.color = '#e07a7a'; return; }
+
+    btn.disabled = true;
+    status.textContent = 'Submitting...';
+    status.style.color = '#aaa';
+
+    try {
+      const res = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind:        'object',
+          slotKey:     this._roomKey,
+          displayName: this._playerName,
+          uid:         this._playerUid ?? null,
+          sessionId:   this._colyseusRoom?.sessionId ?? null,
+          code,
+          meta: { x: this._pendingObjectX, y: this._pendingObjectY },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
+        status.textContent = msg;
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        status.textContent = '✓ ' + (data.message ?? 'Object submitted! The admin will review it soon.');
+        status.style.color = '#52b788';
+        setTimeout(() => this._closeObjectOverlay(), 4000);
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
+  }
+
+  // ── Submit Music Overlay (Phase 11 milestone 4) ─────────────────────────────
+  // Ambient, owner-only, no anchor — copied near-verbatim from the game
+  // overlay trio above (_createGameOverlay/_openGameOverlay/_submitGameCode),
+  // since the flow is identical: paste code, POST to /api/submit, admin reviews.
+  _createMusicOverlay() {
+    const el = document.createElement('div');
+    el.id = 'woc-music-overlay';
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Room Music</h2>
+        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated music code below (ask Gemini to generate one from src/rooms/_music_template.js — see [H] Help for a ready-made prompt). The admin will review it, and it'll play automatically whenever a player enters your room.</p>
+        <label style="display:block;margin-bottom:0.75rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
+          <input id="woc-music-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
+            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        </label>
+        <label style="display:block;margin-bottom:1rem">
+          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Music Code (paste from Gemini)</span>
+          <textarea id="woc-music-code" placeholder="// Paste your room music code here..."
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+        </label>
+        <div id="woc-music-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-music-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-music-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Music</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._musicOverlayEl = el;
+    document.getElementById('woc-music-cancel').onclick = () => this._closeMusicOverlay();
+    document.getElementById('woc-music-submit').onclick = () => this._submitMusicCode();
+  }
+
+  _openMusicOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._musicOverlayEl) this._createMusicOverlay();
+    this._musicOverlayEl.style.display = 'flex';
+    document.getElementById('woc-music-name').value  = this._playerName ?? '';
+    document.getElementById('woc-music-code').value  = '';
+    document.getElementById('woc-music-status').textContent = '';
+    document.getElementById('woc-music-status').style.color = '#aaa';
+    document.getElementById('woc-music-submit').disabled = false;
+    document.getElementById('woc-music-name').focus();
+    this._musicOverlayOpen = true;
+  }
+
+  _closeMusicOverlay() {
+    if (this._musicOverlayEl) this._musicOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._musicOverlayOpen = false;
+  }
+
+  async _submitMusicCode() {
+    const name   = document.getElementById('woc-music-name').value.trim();
+    const code   = document.getElementById('woc-music-code').value.trim();
+    const status = document.getElementById('woc-music-status');
+    const btn    = document.getElementById('woc-music-submit');
+
+    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
+    if (!code) { status.textContent = 'Please paste your music code.'; status.style.color = '#e07a7a'; return; }
+
+    btn.disabled = true;
+    status.textContent = 'Submitting...';
+    status.style.color = '#aaa';
+
+    try {
+      const res  = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind:        'music',
+          slotKey:     this._roomKey,
+          displayName: name,
+          uid:         this._playerUid ?? null,
+          sessionId:   this._colyseusRoom?.sessionId ?? null,
+          code,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
+        status.textContent = msg;
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        status.textContent = '✓ ' + (data.message ?? 'Music submitted! The admin will review it soon.');
+        status.style.color = '#52b788';
+        setTimeout(() => this._closeMusicOverlay(), 4000);
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
+  }
+
+  // ── In-Room Help Overlay (player guide) ─────────────────────────────────────
+  // Reachable via [H] from inside any room (owner or visitor) — never the
+  // town-square signpost, since this is specifically about what you can add
+  // to a room you're already standing in. A paged HTML overlay, following
+  // the same DOM-div convention as the game/object/music overlays above
+  // (RoomScene has no Phaser-native paged-panel precedent the way
+  // WorldScene's notice board does — this keeps one overlay technique per
+  // scene rather than importing a second one just for this).
+  _buildHelpPages() {
+    const L = OBJECT_LIMITS;
+    return [
+      {
+        title: 'What you can add to your room',
+        body:
+          'Beyond the room itself, you can add four kinds of things:\n\n' +
+          '🎮  MINI-GAME — [G] near your game anchor spot\n' +
+          '    Real code, admin-reviewed. One per room.\n\n' +
+          '✨  DECORATIVE OBJECT — [O]\n' +
+          '    Just a shape list (JSON) — appears instantly, no review.\n' +
+          '    Move it anytime by dragging, edit it with [C], remove with [X].\n\n' +
+          '⚙️  INTERACTIVE OBJECT — [O] → toggle to "Interactive"\n' +
+          '    Real code with its own behavior — admin-reviewed, but submitted\n' +
+          '    on its own, never touching your room\'s existing code.\n' +
+          '    Press [E] near one to interact, [X] to remove it.\n\n' +
+          '🎵  ROOM MUSIC — [M]\n' +
+          '    Ambient background music, synthesized with the Web Audio API.\n' +
+          '    Admin-reviewed. Plays automatically when a player enters.\n\n' +
+          'The next 6 pages have ready-to-copy Gemini prompts for objects and\n' +
+          'music — a DESIGN prompt to iterate on with Gemini (ask for changes,\n' +
+          'previews, whatever you like), then an EXPORT prompt to run once\n' +
+          'you\'re happy, which forces Gemini to hand back clean code you can\n' +
+          'actually paste in — not a preview, not markdown, not HTML.\n' +
+          'Use [→] to continue.',
+      },
+      {
+        title: 'Prompt 1 — Decorative Object (Design)',
+        body:
+          'A decorative object is pure DATA (a JSON shape list) — approved\n' +
+          'instantly, no admin review. Use this prompt to design and iterate —\n' +
+          'ask Gemini to show you a preview, tweak colors, add shapes, whatever\n' +
+          'you like. When you\'re happy, move to the next page (Export).',
+        copyText:
+          'I want to design a decorative object for my room in a 2D game (World of Codes).\n' +
+          'Decorative objects are described as a JSON shape list — rectangles, circles,\n' +
+          'triangles, and polygons, with optional gradients and a simple animation preset.\n\n' +
+          'My object should look like: [DESCRIBE YOUR OBJECT HERE]\n\n' +
+          'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
+          'ask for changes before we finalize — we\'ll convert it to the real format after.',
+      },
+      {
+        title: 'Prompt 2 — Decorative Object (Export)',
+        body:
+          'Once you\'re happy with the design above, paste this prompt into the\n' +
+          'SAME conversation to force Gemini to hand back clean, paste-ready\n' +
+          'JSON — not the HTML/canvas preview it may have been showing you.\n' +
+          'Paste the result into the [O] overlay\'s Decorative mode.',
+        copyText:
+          'Now take the object design we\'ve been iterating on above and output ONLY the\n' +
+          'final shape-config JSON — nothing else. If you showed me an HTML/canvas preview,\n' +
+          'do NOT return that — convert its design into this exact JSON schema instead:\n' +
+          '{\n' +
+          '  "shapes": [\n' +
+          '    { "type": "rect", "x": 0, "y": 0, "w": 20, "h": 20, "color": "#RRGGBB", "gradientTo": null },\n' +
+          '    { "type": "circle", "x": 0, "y": 0, "r": 10, "color": "#RRGGBB" },\n' +
+          '    { "type": "triangle", "x": 0, "y": 0, "x2": 10, "y2": 10, "x3": -10, "y3": 10, "color": "#RRGGBB" },\n' +
+          '    { "type": "polygon", "points": [{"x":0,"y":0},{"x":10,"y":10},{"x":-10,"y":10}], "color": "#RRGGBB" }\n' +
+          '  ],\n' +
+          '  "scale": 1,\n' +
+          '  "animation": "none"\n' +
+          '}\n\n' +
+          'STRICT RULES for the output:\n' +
+          '✅ Return ONLY the JSON object — starting with { and ending with }\n' +
+          '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
+          '❌ Do NOT wrap the JSON in ```code fences```\n' +
+          '❌ Do NOT add any comment, explanation, or text before/after the JSON\n' +
+          `- Up to ${L.MAX_SHAPES} shapes total\n` +
+          '- type must be exactly one of: rect, circle, triangle, polygon\n' +
+          `- x/y (and x2/y2/x3/y3, and each point) must be between -${L.COORD_LIMIT} and ${L.COORD_LIMIT}\n` +
+          `- rect w/h must be between 0 and ${L.SIZE_LIMIT}\n` +
+          `- circle r must be between 0 and ${L.RADIUS_LIMIT}\n` +
+          `- polygon needs 3 to ${L.MAX_POLY_POINTS} points\n` +
+          '- color must be a 6-digit hex string like "#f4a261"\n' +
+          '- gradientTo (optional) is a second hex color for a 2-color gradient fill\n' +
+          `- scale must be between ${L.MIN_SCALE} and ${L.MAX_SCALE}\n` +
+          '- animation must be exactly one of: none, pulse, rotate, drift, colorCycle\n' +
+          '- Coordinates are relative to the object\'s own center (0,0), not the room\n' +
+          '- If any part of the design doesn\'t fit these shape types or limits, simplify it\n' +
+          '  down to the closest fit — I need code I can paste directly, not a preview',
+      },
+      {
+        title: 'Prompt 1 — Interactive Object (Design)',
+        body:
+          'An interactive object is real code — admin-reviewed, submitted on\n' +
+          'its own, never touching your room\'s existing code. Use this prompt\n' +
+          'to design and iterate. When you\'re happy, move to the next page\n' +
+          '(Export).',
+        copyText:
+          'I want to design an interactive object for my room in a 2D game (World of Codes),\n' +
+          'built with Phaser.js. Interactive objects are real code that reacts to the player\n' +
+          '(not just simple decoration) — physics, randomness, custom behavior on interact.\n\n' +
+          'My object should do: [DESCRIBE WHAT IT DOES HERE]\n\n' +
+          'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
+          'ask for changes before we finalize — we\'ll convert it to the real format after.',
+      },
+      {
+        title: 'Prompt 2 — Interactive Object (Export)',
+        body:
+          'Once you\'re happy with the design above, paste this prompt into\n' +
+          'the SAME conversation to force Gemini to hand back clean, paste-\n' +
+          'ready code — not an HTML/canvas preview. Paste the result into the\n' +
+          '[O] overlay\'s Interactive mode.',
+        copyText:
+          'Now take the object logic we\'ve been iterating on above and rewrite it using the\n' +
+          'exact template below. Fill in only the body of each function with the behavior\n' +
+          'you already designed. If you showed me an HTML/canvas preview, do NOT return\n' +
+          'that — convert its logic into this exact contract instead:\n\n' +
+          '--- START OF TEMPLATE ---\n' +
+          'export function onLoad(scene) {\n' +
+          '}\n' +
+          'export function onCreate(scene, ctx) {\n' +
+          '  // ctx.x / ctx.y is where this object was placed\n' +
+          '}\n' +
+          'export function onUpdate(scene, ctx) {\n' +
+          '}\n' +
+          'export function onInteract(scene, ctx) {\n' +
+          '}\n' +
+          '// Optional — only if onCreate made extra scene objects needing cleanup:\n' +
+          '// export function onRemove(scene, ctx) {\n' +
+          '// }\n' +
+          '--- END OF TEMPLATE ---\n\n' +
+          'STRICT RULES for the output:\n' +
+          '✅ Return ONLY what is between the template markers — nothing else\n' +
+          '✅ Keep all function names and signatures exactly as shown\n' +
+          '✅ Store any references you need later on ctx (e.g. ctx.sprite = ...) —\n' +
+          '   ctx is the SAME object every call, module-level variables are NOT shared per-object\n' +
+          '✅ Use ONLY scene.add / scene.physics / scene.tweens / scene.time\n' +
+          '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
+          '❌ Do NOT wrap the code in ```code fences```\n' +
+          '❌ Do NOT add import, require(), or export default\n' +
+          '❌ Do NOT use fetch(), document, localStorage, or any explanation/commentary',
+      },
+      {
+        title: 'Prompt 1 — Room Music (Design)',
+        body:
+          'Room music is generated with the Web Audio API — pure synthesis,\n' +
+          'no audio file. Use this prompt to design and iterate on the sound.\n' +
+          'When you\'re happy, move to the next page (Export).',
+        copyText:
+          'I want to design ambient background music for my room in a 2D game (World of Codes).\n' +
+          'Room music is generated live with the Web Audio API — pure synthesis, no audio file.\n\n' +
+          'My music should sound like: [DESCRIBE THE MOOD/STYLE HERE]\n\n' +
+          'Feel free to describe or demo the sound design however is easiest for you (even an\n' +
+          'HTML page with a play button) so I can hear it and ask for changes — we\'ll convert\n' +
+          'it to the real format after.',
+      },
+      {
+        title: 'Prompt 2 — Room Music (Export)',
+        body:
+          'Once you\'re happy with the sound above, paste this prompt into the\n' +
+          'SAME conversation to force Gemini to hand back clean, paste-ready\n' +
+          'code — not an HTML demo page. Paste the result into the [M] overlay.',
+        copyText:
+          'Now take the music we\'ve been iterating on above and rewrite it using the exact\n' +
+          'template below. If you showed me an HTML demo/player, do NOT return that — convert\n' +
+          'its sound design into this exact contract instead, using the Web Audio API:\n\n' +
+          '--- START OF TEMPLATE ---\n' +
+          'let audioCtx = null; // module-level — play() sets it, stop() reads it\n\n' +
+          'export const music = {\n' +
+          '  musicName: \'My Room Music\',\n' +
+          '  play(scene) {\n' +
+          '    // (your AudioContext setup goes here, see rules below)\n' +
+          '  },\n' +
+          '  stop(scene) {\n' +
+          '    audioCtx?.close();\n' +
+          '    audioCtx = null;\n' +
+          '  },\n' +
+          '};\n' +
+          '--- END OF TEMPLATE ---\n\n' +
+          'STRICT RULES for the output:\n' +
+          '✅ Return ONLY what is between the template markers — nothing else\n' +
+          '✅ Keep the exact structure (musicName, play(scene), stop(scene))\n' +
+          '✅ stop() MUST fully silence everything play() started — this is required\n' +
+          '✅ Use ONLY the Web Audio API: new AudioContext(), createOscillator(),\n' +
+          '   createGain(), createBiquadFilter(), node.connect(...), oscillator.start()/stop()\n' +
+          '✅ Call audioCtx.resume() immediately after creating audioCtx — a freshly-created\n' +
+          '   AudioContext can start "suspended" under browser autoplay policy, which produces\n' +
+          '   NO SOUND and no error at all. This is required, not optional.\n' +
+          '✅ Keep the volume LOW (e.g. gain around 0.05) — it plays automatically on entry\n' +
+          '❌ Do NOT reference any audio file/URL\n' +
+          '❌ Do NOT include a <!DOCTYPE>, <html>, <audio>, <script>, or any preview/demo page\n' +
+          '❌ Do NOT wrap the code in ```code fences```\n' +
+          '❌ Do NOT add import, require(), export default, or any explanation/commentary',
+      },
+    ];
+  }
+
+  _createHelpOverlay() {
+    this._helpPages = this._buildHelpPages();
+
+    const el = document.createElement('div');
+    el.id = 'woc-help-overlay';
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:system-ui,sans-serif">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.5rem">
+          <h2 id="woc-help-title" style="color:#88ccff;margin:0;font-size:1.1rem"></h2>
+          <span id="woc-help-pagenum" style="color:#888;font-size:0.8rem"></span>
+        </div>
+        <pre id="woc-help-body" style="color:#e0e0e0;font-size:0.8rem;font-family:'Courier New',monospace;white-space:pre-wrap;line-height:1.5;max-height:340px;overflow-y:auto;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;padding:0.75rem;margin:0 0 1rem"></pre>
+        <div style="display:flex;gap:0.75rem;justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:0.5rem">
+            <button id="woc-help-prev" style="padding:0.5rem 1rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">← Prev</button>
+            <button id="woc-help-next" style="padding:0.5rem 1rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Next →</button>
+          </div>
+          <button id="woc-help-copy" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Copy Prompt</button>
+          <button id="woc-help-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._helpOverlayEl = el;
+    document.getElementById('woc-help-close').onclick = () => this._closeHelpOverlay();
+    document.getElementById('woc-help-prev').onclick  = () => { if (this._helpPage > 0) { this._helpPage--; this._renderHelpPage(); } };
+    document.getElementById('woc-help-next').onclick  = () => { if (this._helpPage < this._helpPages.length - 1) { this._helpPage++; this._renderHelpPage(); } };
+    document.getElementById('woc-help-copy').onclick  = () => this._copyHelpPrompt();
+  }
+
+  _openHelpOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._helpOverlayEl) this._createHelpOverlay();
+    this._helpOverlayEl.style.display = 'flex';
+    this._helpPage = 0;
+    this._renderHelpPage();
+    this._helpOverlayOpen = true;
+  }
+
+  _closeHelpOverlay() {
+    if (this._helpOverlayEl) this._helpOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._helpOverlayOpen = false;
+  }
+
+  _renderHelpPage() {
+    const page  = this._helpPages[this._helpPage];
+    const total = this._helpPages.length;
+    document.getElementById('woc-help-title').textContent   = page.title;
+    document.getElementById('woc-help-body').textContent    = page.body;
+    document.getElementById('woc-help-pagenum').textContent = `${this._helpPage + 1} / ${total}`;
+    document.getElementById('woc-help-prev').disabled = this._helpPage === 0;
+    document.getElementById('woc-help-next').disabled = this._helpPage === total - 1;
+    const copyBtn = document.getElementById('woc-help-copy');
+    copyBtn.style.display = page.copyText ? 'inline-block' : 'none';
+    copyBtn.textContent = 'Copy Prompt';
+  }
+
+  _copyHelpPrompt() {
+    const page = this._helpPages[this._helpPage];
+    if (!page.copyText) return;
+    const btn = document.getElementById('woc-help-copy');
+    navigator.clipboard.writeText(page.copyText)
+      .then(() => {
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => { if (this._helpOverlayOpen) btn.textContent = 'Copy Prompt'; }, 1800);
+      })
+      .catch(() => {
+        btn.textContent = 'Copy failed';
+        setTimeout(() => { if (this._helpOverlayOpen) btn.textContent = 'Copy Prompt'; }, 2500);
+      });
   }
 }

@@ -114,6 +114,7 @@ function buildSlotList() {
       roomName:     a?.roomName     ?? null,
       claimedBy:    a?.claimedBy    ?? null,
       gameFileName: a?.gameFileName ?? null,
+      musicFileName: a?.musicFileName ?? null,
       // Lets the client show/enforce the ownership lock on [U] Update
       // before submission, not just reject it server-side afterward.
       uid:          a?.uid          ?? null,
@@ -124,6 +125,7 @@ function buildSlotList() {
       // actually reaches players already holding the old module.
       roomVersion:  a?.roomVersion  ?? null,
       gameVersion:  a?.gameVersion  ?? null,
+      musicVersion: a?.musicVersion ?? null,
     };
   });
 }
@@ -264,6 +266,12 @@ const gameServer = new Server({
 
     // Room JS files served as static assets — dynamic import('/rooms/...') works
     app.use('/rooms', express.static(ROOMS_DIR));
+
+    // Interactive-object files served the same way — dynamic import('/objects/...')
+    // (Phase 11 milestone 3). The directory doesn't exist until the first
+    // interactive object is approved, so express.static needs it created first.
+    if (!existsSync(OBJECTS_DIR)) mkdirSync(OBJECTS_DIR, { recursive: true });
+    app.use('/objects', express.static(OBJECTS_DIR));
 
     // ── Admin panel ────────────────────────────────────────────────────────────
     app.get('/admin', (req, res) => {
@@ -499,7 +507,7 @@ const gameServer = new Server({
     // Unified submission endpoint for every creation kind (room, game, and
     // whatever Phase 11 adds). One queue, one validator, one file-write path.
     app.post('/api/submit', (req, res) => {
-      const { kind, slotKey, displayName, uid, sessionId, code } = req.body ?? {};
+      const { kind, slotKey, displayName, uid, sessionId, code, meta } = req.body ?? {};
       let kindMod;
       try { kindMod = getKind(kind); } catch { return res.status(400).json({ error: 'Invalid creation kind' }); }
       if (!PORTAL_SLOTS.find(s => s.key === slotKey))
@@ -508,25 +516,34 @@ const gameServer = new Server({
         return res.status(400).json({ error: 'Name required' });
       if (!code?.trim())
         return res.status(400).json({ error: 'Code required' });
-      if (kind === 'game' && !slotAssignments.has(slotKey))
+      if ((kind === 'game' || kind === 'object' || kind === 'music') && !slotAssignments.has(slotKey))
         return res.status(400).json({ error: 'No room approved for that slot yet' });
       const linkedUid = slotAssignments.get(slotKey)?.uid;
       if (linkedUid && uid !== linkedUid)
         return res.status(403).json({ error: 'This slot belongs to a different signed-in creator.' });
-      for (const sub of submissions.values()) {
-        if (sub.slotKey === slotKey && sub.kind === kind)
-          return res.status(400).json({ error: 'That slot already has a pending submission of this kind. Please wait for the current one to be reviewed.' });
+      // Objects are small, independent units — a room can have many, so
+      // unlike room/game a slot may have several pending object submissions
+      // in the queue at once.
+      if (kind !== 'object') {
+        for (const sub of submissions.values()) {
+          if (sub.slotKey === slotKey && sub.kind === kind)
+            return res.status(400).json({ error: 'That slot already has a pending submission of this kind. Please wait for the current one to be reviewed.' });
+        }
       }
       const errors = validateCode(kind, code);
       if (errors.length > 0) return res.status(400).json({ errors });
 
-      const isUpdate = kind === 'room'
-        ? slotAssignments.has(slotKey)
-        : !!(slotAssignments.get(slotKey)?.gameFileName);
+      // Objects are create-only this milestone — no update flow yet. Music
+      // is one-track-per-room and replaceable, like games.
+      const isUpdate = kind === 'room'   ? slotAssignments.has(slotKey)
+                      : kind === 'game'  ? !!(slotAssignments.get(slotKey)?.gameFileName)
+                      : kind === 'music' ? !!(slotAssignments.get(slotKey)?.musicFileName)
+                      : false;
       const id = `${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       submissions.set(id, {
         id, kind, slotKey, uid: uid ?? null, displayName: displayName.trim(),
         sessionId: sessionId ?? null, code, submittedAt: Date.now(), isUpdate,
+        meta: meta ?? null,
       });
       console.log(`[Submit] ${kind} ${isUpdate ? 'update' : 'new'} from "${displayName}" for slot ${slotKey}`);
       const message = isUpdate
@@ -554,18 +571,23 @@ const gameServer = new Server({
     });
 
     // ── Admin: approve / reject ────────────────────────────────────────────────
-    app.post('/admin/approve', (req, res) => {
+    app.post('/admin/approve', async (req, res) => {
       const { password, submissionId } = req.body ?? {};
       if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
       const sub = submissions.get(submissionId);
       if (!sub) return res.status(404).json({ error: 'Submission not found' });
-      if (sub.kind === 'game' && !slotAssignments.has(sub.slotKey))
+      if ((sub.kind === 'game' || sub.kind === 'object' || sub.kind === 'music') && !slotAssignments.has(sub.slotKey))
         return res.status(400).json({ error: 'Target room slot no longer exists' });
       try {
         const kindMod = getKind(sub.kind);
         // For updates, preserve the existing file name so the module URL stays stable.
+        // Objects are create-only (no isUpdate), so they always get a fresh
+        // id-derived name instead.
         const existing = sub.isUpdate ? slotAssignments.get(sub.slotKey) : null;
-        const fileName = kindMod.fileNameFor({ slotKey: sub.slotKey, displayName: sub.displayName, existingFileName: existing?.fileName });
+        const fileName = kindMod.fileNameFor({
+          slotKey: sub.slotKey, displayName: sub.displayName,
+          existingFileName: existing?.fileName, id: sub.id,
+        });
         writeFileSync(join(ROOT, kindMod.targetDir, fileName), sub.code, 'utf8');
 
         if (sub.kind === 'room') {
@@ -577,22 +599,43 @@ const gameServer = new Server({
             uid: sub.uid ?? slotAssignments.get(sub.slotKey)?.uid,
             roomVersion: Date.now(),
           });
-        } else {
+          persistSlots();
+        } else if (sub.kind === 'game') {
           const slot = slotAssignments.get(sub.slotKey);
           slot.gameFileName = fileName;
           slot.gameVersion  = Date.now();
           slotAssignments.set(sub.slotKey, slot);
+          persistSlots();
+        } else if (sub.kind === 'music') {
+          const slot = slotAssignments.get(sub.slotKey);
+          slot.musicFileName = fileName;
+          slot.musicVersion  = Date.now();
+          slotAssignments.set(sub.slotKey, slot);
+          persistSlots();
+        } else if (sub.kind === 'object') {
+          // Objects get their own additive store, not slotAssignments — a
+          // room can carry many of them (Phase 11 milestone 3).
+          await persistObject({
+            id: sub.id, roomSlotKey: sub.slotKey, subKind: 'interactive', ownerUid: sub.uid,
+            x: clampCoord(sub.meta?.x, ROOM_W), y: clampCoord(sub.meta?.y, ROOM_H),
+            movable: true, linkedArtifacts: [], fileName,
+            createdAt: Date.now(), updatedAt: Date.now(),
+          });
+          broadcastObjectsUpdated();
         }
-        persistSlots();
         submissions.delete(submissionId);
 
         const notifyMsg = sub.kind === 'room'
           ? (sub.isUpdate
               ? `Your updated world "${sub.displayName}" was approved! The portal has been refreshed.`
               : `Your world "${sub.displayName}" was approved! Find your portal in the town square.`)
-          : 'Your mini-game was approved! It\'s now live in your portal.';
+          : sub.kind === 'game'
+          ? 'Your mini-game was approved! It\'s now live in your portal.'
+          : sub.kind === 'music'
+          ? 'Your room music was approved! It\'s now playing in your room.'
+          : 'Your interactive object was approved! It\'s now live in your room.';
         notifyPlayer(sub.sessionId, 'approved', notifyMsg);
-        broadcastSlotsUpdated();
+        if (sub.kind === 'room' || sub.kind === 'game' || sub.kind === 'music') broadcastSlotsUpdated();
         console.log(`[Admin] Approved ${sub.kind} ${sub.isUpdate ? 'update' : 'new'} "${sub.displayName}" → ${sub.slotKey} (${fileName})`);
         res.json({ ok: true, fileName });
       } catch (e) {
@@ -606,7 +649,7 @@ const gameServer = new Server({
       const sub = submissions.get(submissionId);
       if (!sub) return res.status(404).json({ error: 'Submission not found' });
       submissions.delete(submissionId);
-      const label = sub.kind === 'room' ? 'world' : 'game';
+      const label = sub.kind === 'room' ? 'world' : sub.kind === 'game' ? 'mini-game' : sub.kind === 'music' ? 'room music' : 'object';
       notifyPlayer(sub.sessionId, 'rejected',
         `Your ${label} submission was not approved. ${reason ? 'Reason: ' + reason : 'Please check your code and resubmit.'}`);
       console.log(`[Admin] Rejected ${sub.kind} submission from "${sub.displayName}"`);

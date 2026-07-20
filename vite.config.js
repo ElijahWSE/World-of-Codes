@@ -11,7 +11,8 @@
 //   2. /admin/**       — Admin panel (served by Express)
 //   3. /api/**         — Public API (portal slots, submissions)
 //   4. /rooms/**       — Room JS files served statically by Express (enables dynamic import)
-//   5. /<pid>/<rid>    — WebSocket room connections (nanoid 9-char IDs)
+//   5. /objects/**     — Interactive-object JS files, same reason as /rooms
+//   6. /<pid>/<rid>    — WebSocket room connections (nanoid 9-char IDs)
 
 export default {
   server: {
@@ -25,6 +26,10 @@ export default {
         changeOrigin: true,
       },
       '/rooms': {
+        target: 'http://localhost:2567',
+        changeOrigin: true,
+      },
+      '/objects': {
         target: 'http://localhost:2567',
         changeOrigin: true,
       },

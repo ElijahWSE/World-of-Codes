@@ -724,6 +724,8 @@ export default class WorldScene extends Phaser.Scene {
             roomKey:      door.key,
             gameFileName: door.gameFileName ?? null,
             gameVersion:  door.gameVersion  ?? null,
+            musicFileName: door.musicFileName ?? null,
+            musicVersion:  door.musicVersion  ?? null,
           });
           this.scene.sleep();
         } else if (dist >= PORTAL_RADIUS) {

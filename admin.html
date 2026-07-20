@@ -202,6 +202,8 @@
           <option value="">All</option>
           <option value="room">Room</option>
           <option value="game">Game</option>
+          <option value="object">Object</option>
+          <option value="music">Music</option>
         </select>
       </label>
       <button class="btn btn-secondary btn-small" onclick="loadPending()">Refresh</button>
@@ -481,7 +483,7 @@ async function toggleFullCode(id) {
 async function approveSubmission(submissionId, kind, name, isUpdate = false) {
   const pw = getPassword();
   if (!pw) { alert('Enter and save your password first.'); return; }
-  const label = kind === 'room' ? 'world' : 'mini-game';
+  const label = kind === 'room' ? 'world' : kind === 'game' ? 'mini-game' : kind === 'music' ? 'room music' : 'object';
   const confirmMsg = isUpdate
     ? `Approve update for "${name}"? This overwrites the existing ${label} file immediately.`
     : `Approve ${label} "${name}"? This writes the file and activates it immediately.`;

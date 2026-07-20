@@ -3,8 +3,10 @@
 // here and one line below, not touching the submission pipeline itself.
 import * as room from './room.js';
 import * as game from './game.js';
+import * as object from './object.js';
+import * as music from './music.js';
 
-const REGISTRY = { room, game };
+const REGISTRY = { room, game, object, music };
 
 export function getKind(name) {
   const found = REGISTRY[name];
