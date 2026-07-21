@@ -15,6 +15,7 @@ import { loadRoom } from '../room-loader/RoomLoader.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
 import { createObject, updateObject, setObjectConfig, OBJECT_LIMITS } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
+import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
 const ROOM_W = 1600; // world width — same as the town square
@@ -897,7 +898,7 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
         <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Game Code</h2>
         <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
         <label style="display:block;margin-bottom:0.75rem">
@@ -910,6 +911,7 @@ export default class RoomScene extends Phaser.Scene {
           <textarea id="woc-game-code" placeholder="// Paste your game code here..."
             style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
+        ${buildSharingFieldsHTML('game')}
         <div id="woc-game-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
           <button id="woc-game-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
@@ -920,9 +922,10 @@ export default class RoomScene extends Phaser.Scene {
     this._gameOverlayEl = el;
     document.getElementById('woc-game-cancel').onclick = () => this._closeGameOverlay();
     document.getElementById('woc-game-submit').onclick = () => this._submitGameCode();
+    wireShareCheckbox('game', () => this._gameCreationMeta?.creationKey ?? null);
   }
 
-  _openGameOverlay() {
+  async _openGameOverlay() {
     this.input.keyboard.disableGlobalCapture();
     if (!this._gameOverlayEl) this._createGameOverlay();
     this._gameOverlayEl.style.display = 'flex';
@@ -933,6 +936,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-game-submit').disabled = false;
     document.getElementById('woc-game-name').focus();
     this._gameOverlayOpen = true;
+    this._gameCreationMeta = await refreshSharingFields('game', 'game', this._roomKey);
   }
 
   _closeGameOverlay() {
@@ -949,6 +953,8 @@ export default class RoomScene extends Phaser.Scene {
 
     if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
     if (!code) { status.textContent = 'Please paste your game code.'; status.style.color = '#e07a7a'; return; }
+    const meta = readSharingFields('game');
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
@@ -965,6 +971,7 @@ export default class RoomScene extends Phaser.Scene {
           uid:         this._playerUid ?? null,
           sessionId:   this._colyseusRoom?.sessionId ?? null,
           code,
+          meta,
         }),
       });
       const data = await res.json();
@@ -1005,7 +1012,7 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
         <h2 id="woc-object-title" style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Object</h2>
         <div id="woc-object-mode-row" style="display:flex;gap:0.5rem;margin-bottom:1rem">
           <button id="woc-object-mode-decorative" style="flex:1;padding:0.4rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Decorative</button>
@@ -1022,6 +1029,7 @@ export default class RoomScene extends Phaser.Scene {
           <textarea id="woc-object-code" placeholder="// Paste your interactive object code here..."
             style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
+        <div id="woc-object-sharing-wrap" style="display:none">${buildSharingFieldsHTML('object', { includeShare: false })}</div>
         <div id="woc-object-links">
           <label style="display:block;margin-bottom:0.5rem">
             <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
@@ -1057,6 +1065,7 @@ export default class RoomScene extends Phaser.Scene {
     const decorative = mode === 'decorative';
     document.getElementById('woc-object-config-label').style.display = decorative ? 'block' : 'none';
     document.getElementById('woc-object-code-label').style.display   = decorative ? 'none' : 'block';
+    document.getElementById('woc-object-sharing-wrap').style.display = decorative ? 'none' : 'block';
     document.getElementById('woc-object-links').style.display        = decorative ? 'block' : 'none';
     document.getElementById('woc-object-mode-decorative').style.background  = decorative ? '#88ccff' : '#1a4a7f';
     document.getElementById('woc-object-mode-decorative').style.color       = decorative ? '#0d1b2e' : '#e0e0e0';
@@ -1071,7 +1080,7 @@ export default class RoomScene extends Phaser.Scene {
   // Pass an existing entry (from the [C] proximity handler) to open in edit
   // mode; call with no argument (as [O] does) to add a new object at the
   // player's current position.
-  _openObjectOverlay(editEntry = null) {
+  async _openObjectOverlay(editEntry = null) {
     this.input.keyboard.disableGlobalCapture();
     if (!this._objectOverlayEl) this._createObjectOverlay();
     this._objectOverlayEl.style.display = 'flex';
@@ -1104,6 +1113,10 @@ export default class RoomScene extends Phaser.Scene {
     this._pendingObjectX = Math.round(this.player.x);
     this._pendingObjectY = Math.round(this.player.y);
     this._objectOverlayOpen = true;
+    // Interactive objects are always create-only (no existing creationKey to
+    // fetch versions/sharing for) — this only ever populates the "based on"
+    // remix dropdown, not a version-cap picker.
+    if (!editEntry) await refreshSharingFields('object', 'object', this._roomKey);
   }
 
   _closeObjectOverlay() {
@@ -1180,6 +1193,8 @@ export default class RoomScene extends Phaser.Scene {
     const btn    = document.getElementById('woc-object-submit');
 
     if (!code) { status.textContent = 'Please paste your object code.'; status.style.color = '#e07a7a'; return; }
+    const sharingMeta = readSharingFields('object');
+    if (!sharingMeta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
@@ -1196,7 +1211,7 @@ export default class RoomScene extends Phaser.Scene {
           uid:         this._playerUid ?? null,
           sessionId:   this._colyseusRoom?.sessionId ?? null,
           code,
-          meta: { x: this._pendingObjectX, y: this._pendingObjectY },
+          meta: { x: this._pendingObjectX, y: this._pendingObjectY, ...sharingMeta },
         }),
       });
       const data = await res.json();
@@ -1230,7 +1245,7 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;font-family:system-ui,sans-serif">
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
         <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Room Music</h2>
         <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated music code below (ask Gemini to generate one from src/rooms/_music_template.js — see [H] Help for a ready-made prompt). The admin will review it, and it'll play automatically whenever a player enters your room.</p>
         <label style="display:block;margin-bottom:0.75rem">
@@ -1243,6 +1258,7 @@ export default class RoomScene extends Phaser.Scene {
           <textarea id="woc-music-code" placeholder="// Paste your room music code here..."
             style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
+        ${buildSharingFieldsHTML('music')}
         <div id="woc-music-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
           <button id="woc-music-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
@@ -1253,9 +1269,10 @@ export default class RoomScene extends Phaser.Scene {
     this._musicOverlayEl = el;
     document.getElementById('woc-music-cancel').onclick = () => this._closeMusicOverlay();
     document.getElementById('woc-music-submit').onclick = () => this._submitMusicCode();
+    wireShareCheckbox('music', () => this._musicCreationMeta?.creationKey ?? null);
   }
 
-  _openMusicOverlay() {
+  async _openMusicOverlay() {
     this.input.keyboard.disableGlobalCapture();
     if (!this._musicOverlayEl) this._createMusicOverlay();
     this._musicOverlayEl.style.display = 'flex';
@@ -1266,6 +1283,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-music-submit').disabled = false;
     document.getElementById('woc-music-name').focus();
     this._musicOverlayOpen = true;
+    this._musicCreationMeta = await refreshSharingFields('music', 'music', this._roomKey);
   }
 
   _closeMusicOverlay() {
@@ -1282,6 +1300,8 @@ export default class RoomScene extends Phaser.Scene {
 
     if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
     if (!code) { status.textContent = 'Please paste your music code.'; status.style.color = '#e07a7a'; return; }
+    const meta = readSharingFields('music');
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
@@ -1298,6 +1318,7 @@ export default class RoomScene extends Phaser.Scene {
           uid:         this._playerUid ?? null,
           sessionId:   this._colyseusRoom?.sessionId ?? null,
           code,
+          meta,
         }),
       });
       const data = await res.json();

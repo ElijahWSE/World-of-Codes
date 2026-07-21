@@ -65,6 +65,15 @@ const objectsCache      = new Map();
 // write-through-cache role as objectsCache, keyed directly by slotKey since
 // there's exactly one log per room (no generated id needed).
 const processLogsCache = new Map();
+// creationMetaCache: Map<creationKey, { creationKey, kind, slotKey, ownerUid,
+//                          shared, remixedFrom, versions: [{versionId,
+//                          description, displayName, uid, createdAt, code}] }>
+// Phase 13 — sharing/remix/version-history metadata, additive, same
+// write-through-cache role as objectsCache/processLogsCache. creationKey is
+// slotKey for room, `game:${slotKey}`/`music:${slotKey}` for game/music, and
+// the object's own doc id for interactive objects (see creationKeyFor()).
+// Decorative objects never get an entry — they never touch /api/submit.
+const creationMetaCache = new Map();
 let   worldRoomInstance = null; // set in WorldRoom.onCreate()
 
 // Load persisted slot assignments on startup
@@ -110,6 +119,16 @@ try {
   console.log(`[Server] Loaded ${processLogsCache.size} process log(s) from Firestore`);
 } catch (e) {
   console.error('[Server] Failed to load process logs from Firestore:', e.message);
+}
+
+// Load persisted creation-sharing/version-history metadata from Firestore on
+// startup (Phase 13), same pattern as objects/process logs above.
+try {
+  const metaSnap = await db.collection('creationMeta').get();
+  metaSnap.forEach(doc => creationMetaCache.set(doc.id, doc.data()));
+  console.log(`[Server] Loaded ${creationMetaCache.size} creation-meta record(s) from Firestore`);
+} catch (e) {
+  console.error('[Server] Failed to load creation meta from Firestore:', e.message);
 }
 
 function persistSlots() {
@@ -209,6 +228,26 @@ async function deleteObjectRecord(id) {
 async function persistProcessLog(log) {
   await db.collection('processLogs').doc(log.slotKey).set(log);
   processLogsCache.set(log.slotKey, log);
+}
+
+// Phase 13 — stable identifier for a creation across kinds. There's no
+// unified creations/{id} collection in this codebase (room/game/music live
+// as files + slotAssignments fields, objects live in their own Firestore
+// docs), so this derives one: bare slotKey for room, a kind-prefixed key for
+// game/music (a slot can have one of each alongside its room), and the
+// object's own doc id for interactive objects (already globally unique,
+// generated at first submission, so it can never collide with a slotNN key).
+function creationKeyFor(kind, slotKey, objectId) {
+  if (kind === 'object') return objectId;
+  if (kind === 'room') return slotKey;
+  return `${kind}:${slotKey}`; // game / music
+}
+
+// Writes through to Firestore first, then updates the read cache — same
+// rationale as persistObject above. Keyed by creationKey (the doc id).
+async function persistCreationMeta(meta) {
+  await db.collection('creationMeta').doc(meta.creationKey).set(meta);
+  creationMetaCache.set(meta.creationKey, meta);
 }
 
 function clampCoord(v, max) {
@@ -572,6 +611,67 @@ const gameServer = new Server({
       }
     });
 
+    // ── Sharing, remix & version history (Phase 13) ──────────────────────────────
+    // Applies only to code-kind creations (room/game/music/interactive
+    // object) — decorative objects are pure JSON, never touch /api/submit,
+    // and never get a creationMeta entry.
+    app.get('/api/creation-meta', (req, res) => {
+      const { kind, slotKey } = req.query;
+      let kindMod;
+      try { kindMod = getKind(kind); } catch { return res.status(400).json({ error: 'Invalid creation kind' }); }
+      if (kindMod.kind === 'object')
+        return res.status(400).json({ error: 'Look up an object\'s creationMeta by creationKey, not kind+slotKey' });
+      const creationKey = creationKeyFor(kind, slotKey);
+      const meta = creationMetaCache.get(creationKey);
+      if (!meta) return res.json({ creationKey, shared: false, remixedFrom: null, versions: [] });
+      res.json({
+        creationKey: meta.creationKey, shared: meta.shared, remixedFrom: meta.remixedFrom,
+        versions: meta.versions.map(v => ({ versionId: v.versionId, description: v.description, displayName: v.displayName, createdAt: v.createdAt })),
+      });
+    });
+
+    // Cross-kind list of every creation currently opted in to sharing —
+    // feeds the "based on" remix picker. No code returned here; just enough
+    // to label the option (the remixer copies from Gemini/the room itself,
+    // this platform doesn't hand out raw code for copy-paste).
+    app.get('/api/creations/shared', (_req, res) => {
+      const list = [...creationMetaCache.values()]
+        .filter(m => m.shared)
+        .map(m => {
+          const latest = m.versions[m.versions.length - 1];
+          return {
+            creationKey: m.creationKey, kind: m.kind, slotKey: m.slotKey,
+            label: latest?.description || `${m.kind} by ${latest?.displayName ?? 'a player'}`,
+          };
+        });
+      res.json({ creations: list });
+    });
+
+    // Owner-only toggle — independent of resubmitting code, since flipping a
+    // boolean shouldn't force a full re-review. 404s if nothing has ever
+    // been approved for this creationKey yet.
+    app.post('/api/creation-meta/share', async (req, res) => {
+      const { idToken, creationKey, shared } = req.body ?? {};
+      const meta = creationMetaCache.get(creationKey);
+      if (!meta) return res.status(404).json({ error: 'No approved creation found for that key yet.' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+      if (!meta.ownerUid || uid !== meta.ownerUid)
+        return res.status(403).json({ error: 'You do not own this creation.' });
+
+      try {
+        await persistCreationMeta({ ...meta, shared: !!shared });
+        res.json({ ok: true, shared: !!shared });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
     // Unified submission endpoint for every creation kind (room, game, and
     // whatever Phase 11 adds). One queue, one validator, one file-write path.
     app.post('/api/submit', (req, res) => {
@@ -598,6 +698,22 @@ const gameServer = new Server({
             return res.status(400).json({ error: 'That slot already has a pending submission of this kind. Please wait for the current one to be reviewed.' });
         }
       }
+      // Phase 13 — version-history cap. Objects always get a brand-new
+      // creationKey (their own not-yet-generated submission id), so an
+      // existing creationMeta doc is never found for them — this check is a
+      // no-op for kind === 'object', by construction, not a special case.
+      const existingMetaKey = kind === 'object' ? null : creationKeyFor(kind, slotKey);
+      const existingMeta = existingMetaKey ? creationMetaCache.get(existingMetaKey) : null;
+      if (existingMeta?.versions?.length >= 5) {
+        const validDrop = existingMeta.versions.some(v => v.versionId === meta?.dropVersionId);
+        if (!validDrop) {
+          return res.status(400).json({
+            error: 'This creation already has 5 saved versions. Choose one to replace.',
+            versions: existingMeta.versions.map(v => ({ versionId: v.versionId, description: v.description, displayName: v.displayName, createdAt: v.createdAt })),
+          });
+        }
+      }
+
       const errors = validateCode(kind, code);
       if (errors.length > 0) return res.status(400).json({ errors });
 
@@ -691,6 +807,32 @@ const gameServer = new Server({
           });
           broadcastObjectsUpdated();
         }
+
+        // Phase 13 — record this approval as a version in creationMeta,
+        // strictly additive after the per-kind write above (never changes
+        // fileName/slotAssignments/objectsCache behavior). Evicts the
+        // creator's chosen version first if already at the 5-version cap
+        // (enforced at /api/submit time, so dropVersionId is trusted here).
+        const creationKey = creationKeyFor(sub.kind, sub.slotKey, sub.id);
+        const existingMeta = creationMetaCache.get(creationKey);
+        const versions = existingMeta?.versions ? [...existingMeta.versions] : [];
+        if (versions.length >= 5) {
+          const dropIdx = versions.findIndex(v => v.versionId === sub.meta?.dropVersionId);
+          if (dropIdx !== -1) versions.splice(dropIdx, 1);
+        }
+        versions.push({
+          versionId: sub.id,
+          description: String(sub.meta?.versionDescription ?? '').trim().slice(0, 200),
+          displayName: sub.displayName, uid: sub.uid ?? null, createdAt: Date.now(), code: sub.code,
+        });
+        await persistCreationMeta({
+          creationKey, kind: sub.kind, slotKey: sub.slotKey,
+          ownerUid: sub.uid ?? existingMeta?.ownerUid ?? null,
+          shared: existingMeta?.shared ?? false,
+          remixedFrom: sub.meta?.remixedFrom !== undefined ? sub.meta.remixedFrom : (existingMeta?.remixedFrom ?? null),
+          versions,
+        });
+
         submissions.delete(submissionId);
 
         const notifyMsg = sub.kind === 'room'

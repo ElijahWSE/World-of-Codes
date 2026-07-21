@@ -67,11 +67,12 @@
   },
   "slot45": {
     "fileName": "elijah-worldcup-test.js",
-    "roomName": "Worldcup Test (3)",
-    "claimedBy": "Worldcup Test (3)",
+    "roomName": "Japanese Cafe Final",
+    "claimedBy": "Japanese Cafe Final",
     "uid": "6EHvKQewrmdEemg5VMUc0pKvdOk1",
     "gameFileName": "game-slot45.js",
     "musicFileName": "music-slot45.js",
-    "musicVersion": 1784554407020
+    "musicVersion": 1784554407020,
+    "roomVersion": 1784642424242
   }
 }

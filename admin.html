@@ -446,6 +446,9 @@ async function loadPending() {
           ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
           — ${new Date(s.submittedAt).toLocaleString()}
         </div>
+        ${s.meta?.versionDescription ? `<div class="note" style="color:#aaa;font-size:0.8rem;margin-bottom:0.5rem">"${escHtml(s.meta.versionDescription)}"</div>` : ''}
+        ${s.meta?.remixedFrom ? `<div class="note" style="color:#a7c957;font-size:0.78rem;margin-bottom:0.5rem">Remixed from: ${escHtml(s.meta.remixedFrom)}</div>` : ''}
+        ${s.meta?.dropVersionId ? `<div class="note" style="color:#e9c46a;font-size:0.78rem;margin-bottom:0.5rem">Will replace version: ${escHtml(s.meta.dropVersionId)}</div>` : ''}
         <div class="preview" id="preview-${s.id}">${escHtml(s.codePreview)}…</div>
         <div class="full-code" id="full-${s.id}"></div>
         <div class="btn-row">

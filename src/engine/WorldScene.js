@@ -14,6 +14,7 @@ import { WorldState } from '../shared/schema.js';
 import { getFreshIdToken, onSessionChange } from '../auth/session.js';
 import { signOutUser } from '../auth/googleAuth.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
+import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
 import {
   WORLD_W, WORLD_H, CITY_W, CITY_H, CITY_X0, CITY_Y0,
   HUB_BOUNDS, PLOTS, SPAWN_POINT, STREET_PROPS,
@@ -752,7 +753,7 @@ export default class WorldScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#16213e;border:1px solid #2a4a7f;border-radius:12px;padding:2rem;width:540px;max-width:95vw;font-family:system-ui,sans-serif">
+      <div style="background:#16213e;border:1px solid #2a4a7f;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
         <h2 id="woc-claim-title" style="color:#f4a261;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
         <p id="woc-claim-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
         <label style="display:block;margin-bottom:0.75rem">
@@ -765,6 +766,7 @@ export default class WorldScene extends Phaser.Scene {
           <textarea id="woc-claim-code" placeholder="// Paste your room code here..."
             style="width:100%;height:180px;padding:0.5rem 0.75rem;background:#0f3460;border:1px solid #2a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
+        ${buildSharingFieldsHTML('claim')}
         <div id="woc-claim-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
           <button id="woc-claim-cancel" style="padding:0.5rem 1.25rem;background:#2a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
@@ -775,9 +777,10 @@ export default class WorldScene extends Phaser.Scene {
     this._claimOverlayEl = el;
     document.getElementById('woc-claim-cancel').onclick = () => this._closeClaimOverlay();
     document.getElementById('woc-claim-submit').onclick = () => this._submitClaim();
+    wireShareCheckbox('claim', () => this._claimCreationMeta?.creationKey ?? null);
   }
 
-  _openClaimOverlay(slotKey, isUpdate = false) {
+  async _openClaimOverlay(slotKey, isUpdate = false) {
     this.input.keyboard.disableGlobalCapture();
     this._claimTargetSlot = slotKey;
     this._claimIsUpdate   = isUpdate;
@@ -799,6 +802,7 @@ export default class WorldScene extends Phaser.Scene {
     document.getElementById('woc-claim-submit').disabled = false;
     document.getElementById('woc-claim-name').focus();
     this._claimOpen = true;
+    this._claimCreationMeta = await refreshSharingFields('claim', 'room', slotKey);
   }
 
   _closeClaimOverlay() {
@@ -821,6 +825,8 @@ export default class WorldScene extends Phaser.Scene {
 
     if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
     if (!code) { status.textContent = 'Please paste your room code.'; status.style.color = '#e07a7a'; return; }
+    const meta = readSharingFields('claim');
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
@@ -837,6 +843,7 @@ export default class WorldScene extends Phaser.Scene {
           uid:         this.playerUid ?? null,
           sessionId:   this.colyseusRoom?.sessionId ?? null,
           code,
+          meta,
         }),
       });
       const data = await res.json();
