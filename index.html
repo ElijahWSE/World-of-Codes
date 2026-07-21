@@ -17,19 +17,23 @@
       height: 100%;
       background: #000;
       overflow: hidden; /* No scrollbars — game canvas fills the viewport */
-      display: flex;
-      align-items: center;
-      justify-content: center;
     }
 
-    /* Phaser injects its canvas here; centering is handled by flexbox above */
+    /* Full-viewport host div — Phaser's Scale Manager (FIT + autoCenter) sizes
+       and centers the canvas inside this automatically. */
+    #game-container {
+      width: 100%;
+      height: 100%;
+    }
+
     canvas {
       display: block;
     }
   </style>
 </head>
 <body>
-  <!-- Phaser boots from main.js and appends its canvas to <body> automatically -->
+  <div id="game-container"></div>
+  <!-- Phaser boots from main.js and appends its canvas into #game-container automatically -->
   <script type="module" src="/src/engine/main.js"></script>
 </body>
 </html>

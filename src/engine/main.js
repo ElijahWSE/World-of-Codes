@@ -15,7 +15,12 @@ const config = {
   width: 800,
   height: 600,
   backgroundColor: '#1a1a2e', // Dark navy — matches the town square aesthetic
-  parent: document.body,      // Phaser appends the canvas directly to <body>
+  parent: 'game-container',   // Phaser appends the canvas into the full-viewport div in index.html
+
+  scale: {
+    mode: Phaser.Scale.FIT,             // Scale the 800x600 canvas up to fill the viewport, preserving aspect ratio
+    autoCenter: Phaser.Scale.CENTER_BOTH // Center it if the viewport aspect ratio doesn't match 4:3
+  },
 
   physics: {
     default: 'arcade',

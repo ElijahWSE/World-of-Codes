@@ -16,6 +16,7 @@
 
 export default {
   server: {
+    host: true, // Bind to 0.0.0.0 so GitHub Codespaces' port-forwarding proxy can reach the dev server
     proxy: {
       '/admin': {
         target: 'http://localhost:2567',
