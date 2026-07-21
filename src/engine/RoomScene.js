@@ -69,6 +69,10 @@ export default class RoomScene extends Phaser.Scene {
     this._helpOverlayEl   = null;
     this._helpOverlayOpen = false;
     this._helpPage        = 0;
+
+    // ── Creative Process Log (Phase 12) ─────────────────────────────────────
+    this._processLogOverlayEl   = null;
+    this._processLogOverlayOpen = false;
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -137,11 +141,13 @@ export default class RoomScene extends Phaser.Scene {
     this._keyX = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X); // delete object (owner)
     this._keyM = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M); // submit music (owner)
     this._keyH = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.H); // in-room help (anyone)
+    this._keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P); // process log (anyone views, owner edits)
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._gameOverlayOpen)   this._closeGameOverlay();
       if (this._objectOverlayOpen) this._closeObjectOverlay();
       if (this._musicOverlayOpen)  this._closeMusicOverlay();
       if (this._helpOverlayOpen)   this._closeHelpOverlay();
+      if (this._processLogOverlayOpen) this._closeProcessLogOverlay();
     });
 
     // ── Back button ───────────────────────────────────────────────────────────
@@ -276,6 +282,15 @@ export default class RoomScene extends Phaser.Scene {
       backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(200);
 
+    // ── Creative Process Log hint (Phase 12) ──────────────────────────────────
+    // Visible to anyone (owner or visitor) — reading a log has no ownership
+    // gate, only writing does (checked inside the overlay itself). Bottom-
+    // right, clear of the bottom-left owner hints and the top-right Help hint.
+    this._processLogHint = this.add.text(this.cameras.main.width - 16, this.cameras.main.height - 16, '[P]  Process Log', {
+      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+    }).setOrigin(1, 1).setScrollFactor(0).setDepth(200);
+
     this._checkOwnership();
     this._fetchAndDrawObjects();
 
@@ -335,12 +350,15 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-object-overlay')?.remove();
     document.getElementById('woc-music-overlay')?.remove();
     document.getElementById('woc-help-overlay')?.remove();
+    document.getElementById('woc-processlog-overlay')?.remove();
     this._gameOverlayEl  = null;
     this._gameOverlayOpen = false;
     this._musicOverlayEl  = null;
     this._musicOverlayOpen = false;
     this._helpOverlayEl   = null;
     this._helpOverlayOpen = false;
+    this._processLogOverlayEl   = null;
+    this._processLogOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
     this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
 
@@ -723,14 +741,17 @@ export default class RoomScene extends Phaser.Scene {
     this._nameTag.setPosition(this.player.x, this.player.y - 24);
 
     // ── In-room Help toggle (anyone) — checked before the freeze-return below
-    // so [H] can close the overlay it just opened, not just open it.
+    // so [H] can close the overlay it just opened, not just open it. Safe
+    // to toggle-close this way only because Help has no text inputs — see
+    // the Process Log note below for why that toggle pattern doesn't work
+    // once a textarea is involved.
     if (Phaser.Input.Keyboard.JustDown(this._keyH)) {
       if (this._helpOverlayOpen) this._closeHelpOverlay();
-      else if (!this._gameOverlayOpen && !this._objectOverlayOpen && !this._musicOverlayOpen) this._openHelpOverlay();
+      else if (!this._gameOverlayOpen && !this._objectOverlayOpen && !this._musicOverlayOpen && !this._processLogOverlayOpen) this._openHelpOverlay();
     }
 
     // ── Freeze movement while an overlay is open or an object is being dragged ─
-    if (this._gameOverlayOpen || this._objectOverlayOpen || this._musicOverlayOpen || this._helpOverlayOpen || this._draggingObjectId) {
+    if (this._gameOverlayOpen || this._objectOverlayOpen || this._musicOverlayOpen || this._helpOverlayOpen || this._processLogOverlayOpen || this._draggingObjectId) {
       body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
@@ -804,6 +825,22 @@ export default class RoomScene extends Phaser.Scene {
     // ── Submit Music (room owner only) ─────────────────────────────────────────
     if (this._isRoomOwner && Phaser.Input.Keyboard.JustDown(this._keyM)) {
       this._openMusicOverlay();
+    }
+
+    // ── Process Log (anyone can view, only the owner can edit) ────────────────
+    // Deliberately open-only, checked here (after the freeze-return above)
+    // rather than as a toggle like [H] — this overlay has editable textareas,
+    // and Phaser's Key objects keep tracking keydowns globally even while the
+    // browser is sending them to a focused DOM textarea (disableGlobalCapture
+    // only suppresses preventDefault, not Phaser's own key-state tracking).
+    // A toggle-on-P-again would mean typing any word containing "p" — "past",
+    // "present", "process" — closes the overlay mid-sentence. Placing the
+    // check here means it can never even run while this overlay is already
+    // open (the freeze-return above exits first), so closing is only ever
+    // via the Close button or Esc — same convention already used by the
+    // Music/Object/Game overlays above for the same reason.
+    if (Phaser.Input.Keyboard.JustDown(this._keyP)) {
+      this._openProcessLogOverlay();
     }
 
     // ── Game anchor proximity ─────────────────────────────────────────────────
@@ -1308,6 +1345,9 @@ export default class RoomScene extends Phaser.Scene {
           '🎵  ROOM MUSIC — [M]\n' +
           '    Ambient background music, synthesized with the Web Audio API.\n' +
           '    Admin-reviewed. Plays automatically when a player enters.\n\n' +
+          '📝  PROCESS LOG — [P]\n' +
+          '    Reflect on this room\'s creative journey — past / present /\n' +
+          '    future. Anyone can read it; only you (the owner) can edit it.\n\n' +
           'The next 6 pages have ready-to-copy Gemini prompts for objects and\n' +
           'music — a DESIGN prompt to iterate on with Gemini (ask for changes,\n' +
           'previews, whatever you like), then an EXPORT prompt to run once\n' +
@@ -1552,5 +1592,120 @@ export default class RoomScene extends Phaser.Scene {
         btn.textContent = 'Copy failed';
         setTimeout(() => { if (this._helpOverlayOpen) btn.textContent = 'Copy Prompt'; }, 2500);
       });
+  }
+
+  // ── Creative Process Log (Phase 12) ─────────────────────────────────────────
+  // Past/present/future reflection on the room's whole creative package —
+  // readable by anyone, editable only by the room's owner. Same DOM-overlay
+  // convention as the Help window above; branches on this._isRoomOwner to
+  // decide whether the three fields are editable or read-only.
+  _createProcessLogOverlay() {
+    const el = document.createElement('div');
+    el.id = 'woc-processlog-overlay';
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    const field = (id, label, placeholder) => `
+      <label style="display:block;margin-bottom:0.85rem">
+        <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">${label}</span>
+        <textarea id="${id}" placeholder="${placeholder}"
+          style="width:100%;height:80px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+      </label>`;
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:system-ui,sans-serif">
+        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Creative Process Log</h2>
+        <p id="woc-processlog-subtitle" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem"></p>
+        ${field('woc-processlog-past', 'Past — how did this room come together?', 'What did you learn while making this?')}
+        ${field('woc-processlog-present', 'Present — what is this room now?', 'What does it look/feel like today?')}
+        ${field('woc-processlog-future', "Future — what's next?", 'What do you want to add or change next?')}
+        <div id="woc-processlog-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-processlog-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-processlog-save" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._processLogOverlayEl = el;
+    document.getElementById('woc-processlog-close').onclick = () => this._closeProcessLogOverlay();
+    document.getElementById('woc-processlog-save').onclick  = () => this._saveProcessLog();
+  }
+
+  async _openProcessLogOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._processLogOverlayEl) this._createProcessLogOverlay();
+    this._processLogOverlayEl.style.display = 'flex';
+    this._processLogOverlayOpen = true;
+
+    const pastEl    = document.getElementById('woc-processlog-past');
+    const presentEl = document.getElementById('woc-processlog-present');
+    const futureEl  = document.getElementById('woc-processlog-future');
+    const subtitle  = document.getElementById('woc-processlog-subtitle');
+    const saveBtn   = document.getElementById('woc-processlog-save');
+    const status    = document.getElementById('woc-processlog-status');
+
+    status.textContent = '';
+    subtitle.textContent = this._isRoomOwner
+      ? "Reflect on how this room came together, what it is now, and what's next. Anyone visiting can read this."
+      : "This room's creator's reflection on how it came together, what it is now, and what's next.";
+    [pastEl, presentEl, futureEl].forEach(fieldEl => {
+      fieldEl.readOnly = !this._isRoomOwner;
+      fieldEl.style.opacity = this._isRoomOwner ? '1' : '0.85';
+    });
+    saveBtn.style.display = this._isRoomOwner ? 'inline-block' : 'none';
+    pastEl.value = presentEl.value = futureEl.value = 'Loading...';
+
+    try {
+      const res  = await fetch(`/api/process-log?slotKey=${encodeURIComponent(this._roomKey)}`);
+      const data = await res.json();
+      pastEl.value    = data.past    || (this._isRoomOwner ? '' : '(Nothing written yet.)');
+      presentEl.value = data.present || (this._isRoomOwner ? '' : '(Nothing written yet.)');
+      futureEl.value  = data.future  || (this._isRoomOwner ? '' : '(Nothing written yet.)');
+    } catch (e) {
+      pastEl.value = presentEl.value = futureEl.value = '';
+      status.textContent = 'Could not load process log: ' + e.message;
+      status.style.color = '#e07a7a';
+    }
+  }
+
+  _closeProcessLogOverlay() {
+    if (this._processLogOverlayEl) this._processLogOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._processLogOverlayOpen = false;
+  }
+
+  async _saveProcessLog() {
+    const past    = document.getElementById('woc-processlog-past').value;
+    const present = document.getElementById('woc-processlog-present').value;
+    const future  = document.getElementById('woc-processlog-future').value;
+    const status  = document.getElementById('woc-processlog-status');
+    const btn     = document.getElementById('woc-processlog-save');
+
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+    status.style.color = '#aaa';
+
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch('/api/process-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, slotKey: this._roomKey, past, present, future }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Save failed';
+        status.style.color = '#e07a7a';
+      } else {
+        status.textContent = '✓ Saved';
+        status.style.color = '#52b788';
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+    } finally {
+      btn.disabled = false;
+    }
   }
 }

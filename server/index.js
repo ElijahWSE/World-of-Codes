@@ -60,6 +60,11 @@ const submissions       = new Map();
 // truth; this Map is an in-memory read cache, same role slotAssignments
 // plays for slots.json.
 const objectsCache      = new Map();
+// processLogsCache: Map<slotKey, { slotKey, past, present, future, updatedAt }>
+// One Process Log per room slot (Phase 12) — additive collection, same
+// write-through-cache role as objectsCache, keyed directly by slotKey since
+// there's exactly one log per room (no generated id needed).
+const processLogsCache = new Map();
 let   worldRoomInstance = null; // set in WorldRoom.onCreate()
 
 // Load persisted slot assignments on startup
@@ -95,6 +100,16 @@ try {
   console.log(`[Server] Loaded ${objectsCache.size} object(s) from Firestore`);
 } catch (e) {
   console.error('[Server] Failed to load objects from Firestore:', e.message);
+}
+
+// Load persisted Process Logs from Firestore on startup (Phase 12), same
+// pattern as objects above.
+try {
+  const logsSnap = await db.collection('processLogs').get();
+  logsSnap.forEach(doc => processLogsCache.set(doc.id, doc.data()));
+  console.log(`[Server] Loaded ${processLogsCache.size} process log(s) from Firestore`);
+} catch (e) {
+  console.error('[Server] Failed to load process logs from Firestore:', e.message);
 }
 
 function persistSlots() {
@@ -186,6 +201,14 @@ async function persistObject(obj) {
 async function deleteObjectRecord(id) {
   await db.collection('objects').doc(id).delete();
   objectsCache.delete(id);
+}
+
+// Writes through to Firestore first, then updates the read cache — same
+// rationale as persistObject above. Keyed by slotKey (the doc id), since
+// there's exactly one Process Log per room.
+async function persistProcessLog(log) {
+  await db.collection('processLogs').doc(log.slotKey).set(log);
+  processLogsCache.set(log.slotKey, log);
 }
 
 function clampCoord(v, max) {
@@ -498,6 +521,51 @@ const gameServer = new Server({
         }
         await deleteObjectRecord(obj.id);
         broadcastObjectsUpdated();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // ── Creative Process Log (Phase 12) ──────────────────────────────────────────
+    // One per room slot — past/present/future reflection on the room's whole
+    // creative package. Readable by anyone (no auth), editable only by the
+    // room's owner. Never admin-reviewed (plain text, not code).
+    app.get('/api/process-log', (req, res) => {
+      const { slotKey } = req.query;
+      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
+        return res.status(400).json({ error: 'Invalid slot' });
+      const log = processLogsCache.get(slotKey);
+      res.json(log ?? { slotKey, past: '', present: '', future: '', updatedAt: null });
+    });
+
+    app.post('/api/process-log', async (req, res) => {
+      const { idToken, slotKey, past, present, future } = req.body ?? {};
+      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
+        return res.status(400).json({ error: 'Invalid slot' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const ownerUid = slotAssignments.get(slotKey)?.uid;
+      if (!ownerUid || uid !== ownerUid)
+        return res.status(403).json({ error: 'You do not own this room.' });
+
+      const clean = v => String(v ?? '').trim().slice(0, 3000);
+      const log = {
+        slotKey,
+        past:    clean(past),
+        present: clean(present),
+        future:  clean(future),
+        updatedAt: Date.now(),
+      };
+      try {
+        await persistProcessLog(log);
         res.json({ ok: true });
       } catch (e) {
         res.status(500).json({ error: e.message });
