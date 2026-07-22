@@ -108,6 +108,17 @@
   </div>
 </section>
 
+<!-- Online Feedback toggle (Phase 14) -->
+<section>
+  <h2>Online Feedback</h2>
+  <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0;cursor:pointer">
+    <input type="checkbox" id="online-feedback-toggle" onchange="saveFeedbackToggle()">
+    <span>Allow players to leave online feedback on rooms</span>
+  </label>
+  <p class="note">Off by default. Turn on only for supervised/trusted sessions (e.g. a room of adults) — self-recorded feedback is always available to creators regardless of this switch.</p>
+  <div class="status" id="feedback-toggle-status"></div>
+</section>
+
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
@@ -541,6 +552,37 @@ async function submitGame() {
   } catch (e) { showStatus('game-submit-status', `Failed: ${e.message}`, false); }
 }
 
+// ── Online Feedback toggle (Phase 14) ──────────────────────────────────────────
+async function loadFeedbackToggle() {
+  try {
+    const res = await fetch(`/admin/settings?password=${encodeURIComponent(getPassword())}`);
+    const data = await res.json();
+    if (res.ok) document.getElementById('online-feedback-toggle').checked = !!data.onlineFeedbackEnabled;
+  } catch (e) { /* silent — checkbox just stays at its default */ }
+}
+
+async function saveFeedbackToggle() {
+  const checkbox = document.getElementById('online-feedback-toggle');
+  const enabled = checkbox.checked;
+  try {
+    const res = await fetch('/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: getPassword(), onlineFeedbackEnabled: enabled }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showStatus('feedback-toggle-status', data.error ?? 'Failed to save', false);
+      checkbox.checked = !enabled;
+    } else {
+      showStatus('feedback-toggle-status', enabled ? 'Online feedback turned ON' : 'Online feedback turned OFF', true);
+    }
+  } catch (e) {
+    showStatus('feedback-toggle-status', `Network error: ${e.message}`, false);
+    checkbox.checked = !enabled;
+  }
+}
+
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -556,6 +598,7 @@ if (sessionStorage.getItem('woc_admin_pw')) {
   el.style.display = 'inline';
 }
 loadSlots();
+loadFeedbackToggle();
 </script>
 </body>
 </html>

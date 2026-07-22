@@ -792,15 +792,23 @@ Goal: opt-in code sharing, self-declared remix attribution, capped version histo
 
 ---
 
-### PHASE 14 — FEEDBACK SYSTEM (PLANNED, new)
+### PHASE 14 — FEEDBACK SYSTEM (✅ COMPLETE, verified live in-browser by the owner 2026-07-22)
 
 Goal: online feedback (togglable) + always-available self-recorded feedback, tagged by source.
 
-- Admin panel gains a global online-feedback on/off switch
-- When on: any player can leave feedback on a creation (in-game popup, signpost-style interaction); stored with `source: 'online'`, `authorUid` set
-- Self-recorded feedback: always available to the creator regardless of the global toggle; `source: 'self-recorded'`, `authorUid: null`
-- Creator can respond to any feedback entry (a thread of two, not open discussion)
-- No moderation queue for feedback at this stage — only in-world code submissions go through admin approval
+**Scope decision (made during planning):** feedback is **per-room** — one thread per room covering its whole creative package (room + game + music + objects), the same scope-narrowing Phase 12's Process Log went through, not a separate thread per creation-kind like Phase 13's sharing/version history. Each entry optionally carries an `about` tag (`room`/`game`/`music`/`object`) instead.
+
+- New additive Firestore collection `feedback/{feedbackId}` (multiple docs per room, `objectsCache`-shaped: `Map<id, record>` filtered by `slotKey` on read) + a `config/global` doc for the admin's online-feedback toggle (`onlineFeedbackEnabled`, off by default), loaded the same way every other cache boots.
+- Endpoints: `GET`/`POST /api/feedback`, `POST /api/feedback/:id/respond`, `POST /api/feedback/:id/edit`, `POST /api/feedback/:id/archive`, `GET`/`POST /admin/settings` — all following the existing idToken + ownerUid-match pattern used by `/api/process-log`/`/api/objects/*`.
+- Client: new `[F]` hotkey in `RoomScene.js` (open-only, same Process-Log-style fix baked in from the start, since it has textareas), stacked above the `[P]` hint; `admin.html` gained a plain checkbox section for the global toggle (no new tab needed for one boolean).
+- **Two tiers, tagged by `source`:** `online` (any signed-in player, only while the toggle is on; `authorUid` set, `authorName` looked up server-side from `users/{uid}`, never trusted from the client) and `self-recorded` (room owner only, always available regardless of the toggle; `authorUid`/`authorName` always `null`).
+- **Creator can respond** to any `online` entry (a thread of two) — **self-recorded entries can never be responded to** (there's no other party to reply to; enforced server-side, checked before auth even runs, and the client never renders the reply box for them).
+- **Archive, not delete** (explicit owner decision — reversible, nothing ever lost): owner-only toggle per entry; archived entries drop out of the default view and out of every filter tab's count; a "Show archived" checkbox brings them back. `GET /api/feedback` deliberately still returns everything including archived entries — filtering is client-side only, matching this app's existing no-server-side-viewer-filtering precedent (`/api/objects`, `/api/process-log`).
+- **Color-coded filter tabs** (All/Room/Game/Music/Object, each with a live count) double as the visual "about" tag on each card — `RoomScene.FEEDBACK_ABOUT_META` is the single color/label source of truth for both, so they can't drift apart.
+- **Edit function**: an entry's own text/about tag can be edited by whoever's allowed to — self-recorded → room owner only; online → only the original author (**not** the room owner, unless they happen to be the same person — confirmed via testing that ownership of the room grants no special edit rights over someone else's online feedback). Blocked entirely while archived (unarchive first).
+- **Real bug found by the owner during live testing, then fixed:** room owners could originally submit `source: 'online'` feedback about their own room whenever the toggle was on, in addition to self-recorded — fixed both client-side (the form simply isn't offered to owners) and server-side (403 if `uid === ownerUid`, checked before the toggle even matters — server check is the real gate, client is just UX, same principle as every other write endpoint in this file).
+- No moderation queue for feedback — only in-world code submissions go through admin approval.
+- Verified via curl against a live server boot for every endpoint/permission combination (self-recorded owner-only, online toggle-gated, respond online-only, edit source-dependent-author, archive owner-only-reversible), each round using a scratch room in an unused slot with all test data cleaned up afterward (`git diff` on `slots.json` empty each time). All of it then confirmed live in-browser by the owner.
 
 ---
 

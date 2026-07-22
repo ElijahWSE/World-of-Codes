@@ -74,6 +74,17 @@ const processLogsCache = new Map();
 // the object's own doc id for interactive objects (see creationKeyFor()).
 // Decorative objects never get an entry — they never touch /api/submit.
 const creationMetaCache = new Map();
+// feedbackCache: Map<feedbackId, { feedbackId, slotKey, about, source,
+//                     authorUid, authorName, text, response, respondedAt,
+//                     sessionId, createdAt }>
+// Phase 14 — one thread per room (not per creation-kind, unlike
+// creationMeta), so this is keyed by a generated id and filtered by
+// slotKey on read, same shape/role as objectsCache.
+const feedbackCache = new Map();
+// Single global switch, admin-controlled (Phase 14) — off by default so
+// unsupervised/solo play never exposes unmoderated online feedback.
+// Self-recorded feedback is never gated by this.
+let onlineFeedbackEnabled = false;
 let   worldRoomInstance = null; // set in WorldRoom.onCreate()
 
 // Load persisted slot assignments on startup
@@ -129,6 +140,24 @@ try {
   console.log(`[Server] Loaded ${creationMetaCache.size} creation-meta record(s) from Firestore`);
 } catch (e) {
   console.error('[Server] Failed to load creation meta from Firestore:', e.message);
+}
+
+// Load persisted feedback + the global online-feedback toggle from
+// Firestore on startup (Phase 14), same pattern as objects/process
+// logs/creation meta above.
+try {
+  const feedbackSnap = await db.collection('feedback').get();
+  feedbackSnap.forEach(doc => feedbackCache.set(doc.id, doc.data()));
+  console.log(`[Server] Loaded ${feedbackCache.size} feedback entr(y/ies) from Firestore`);
+} catch (e) {
+  console.error('[Server] Failed to load feedback from Firestore:', e.message);
+}
+try {
+  const configSnap = await db.collection('config').doc('global').get();
+  onlineFeedbackEnabled = !!configSnap.data()?.onlineFeedbackEnabled;
+  console.log(`[Server] Online feedback is ${onlineFeedbackEnabled ? 'ON' : 'OFF'}`);
+} catch (e) {
+  console.error('[Server] Failed to load global config from Firestore:', e.message);
 }
 
 function persistSlots() {
@@ -248,6 +277,17 @@ function creationKeyFor(kind, slotKey, objectId) {
 async function persistCreationMeta(meta) {
   await db.collection('creationMeta').doc(meta.creationKey).set(meta);
   creationMetaCache.set(meta.creationKey, meta);
+}
+
+// Writes through to Firestore first, then updates the read cache — same
+// rationale as persistObject above. Keyed by feedbackId (the doc id).
+async function persistFeedback(entry) {
+  await db.collection('feedback').doc(entry.feedbackId).set(entry);
+  feedbackCache.set(entry.feedbackId, entry);
+}
+
+async function persistGlobalConfig() {
+  await db.collection('config').doc('global').set({ onlineFeedbackEnabled });
 }
 
 function clampCoord(v, max) {
@@ -667,6 +707,208 @@ const gameServer = new Server({
       try {
         await persistCreationMeta({ ...meta, shared: !!shared });
         res.json({ ok: true, shared: !!shared });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // ── Feedback (Phase 14) ──────────────────────────────────────────────────────
+    // One thread per room (not per creation-kind, unlike sharing/version
+    // history above) — each entry may optionally tag which part of the
+    // room's package it's about. Two tiers, tagged by source: 'online'
+    // (any signed-in player, only while onlineFeedbackEnabled is true) and
+    // 'self-recorded' (the room's own owner, always available regardless
+    // of the toggle). Never admin-reviewed — plain text, not code.
+    const FEEDBACK_ABOUT_VALUES = ['room', 'game', 'music', 'object'];
+
+    app.get('/api/feedback', (req, res) => {
+      const { slotKey } = req.query;
+      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
+        return res.status(400).json({ error: 'Invalid slot' });
+      const list = [...feedbackCache.values()]
+        .filter(f => f.slotKey === slotKey)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      res.json({ onlineFeedbackEnabled, feedback: list });
+    });
+
+    app.post('/api/feedback', async (req, res) => {
+      const { idToken, slotKey, about, text, source } = req.body ?? {};
+      if (!PORTAL_SLOTS.find(s => s.key === slotKey))
+        return res.status(400).json({ error: 'Invalid slot' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const cleanText = String(text ?? '').trim().slice(0, 2000);
+      if (!cleanText) return res.status(400).json({ error: 'Feedback text required' });
+      const cleanAbout = FEEDBACK_ABOUT_VALUES.includes(about) ? about : null;
+
+      const ownerUid = slotAssignments.get(slotKey)?.uid;
+      let entrySource, authorUid, authorName;
+      if (source === 'self-recorded') {
+        if (!ownerUid || uid !== ownerUid)
+          return res.status(403).json({ error: 'Only the room owner can add self-recorded feedback.' });
+        entrySource = 'self-recorded';
+        authorUid = null;
+        authorName = null;
+      } else {
+        // Defense in depth — the client also stops offering this form to
+        // owners, but every other write endpoint here treats the server
+        // check as the real gate, never the client UI alone.
+        if (ownerUid && uid === ownerUid)
+          return res.status(403).json({ error: 'Room owners can only add self-recorded feedback about their own room.' });
+        if (!onlineFeedbackEnabled)
+          return res.status(403).json({ error: 'Online feedback is currently turned off.' });
+        entrySource = 'online';
+        authorUid = uid;
+        try {
+          const userSnap = await db.collection('users').doc(uid).get();
+          authorName = userSnap.data()?.displayName ?? 'A player';
+        } catch {
+          authorName = 'A player';
+        }
+      }
+
+      const feedbackId = `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const entry = {
+        feedbackId, slotKey, about: cleanAbout, source: entrySource,
+        authorUid, authorName, text: cleanText,
+        response: null, respondedAt: null, sessionId: null,
+        archived: false, createdAt: Date.now(),
+      };
+      try {
+        await persistFeedback(entry);
+        res.json({ ok: true, feedbackId });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Edit an entry's own text/about tag. Self-recorded entries can only be
+    // edited by the room owner (there's no other author); online entries
+    // can only be edited by whoever originally left them — not the room
+    // owner, unless they happen to be the same person. Blocked while
+    // archived (unarchive first) so a hidden entry can't be silently
+    // changed out from under the "Show archived" view.
+    app.post('/api/feedback/:id/edit', async (req, res) => {
+      const { idToken, about, text } = req.body ?? {};
+      const entry = feedbackCache.get(req.params.id);
+      if (!entry) return res.status(404).json({ error: 'Feedback not found' });
+      if (entry.archived) return res.status(400).json({ error: 'Unarchive this entry before editing it.' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const ownerUid = slotAssignments.get(entry.slotKey)?.uid;
+      const canEdit = entry.source === 'self-recorded'
+        ? (!!ownerUid && uid === ownerUid)
+        : (!!entry.authorUid && uid === entry.authorUid);
+      if (!canEdit) return res.status(403).json({ error: 'You can only edit your own feedback.' });
+
+      const cleanText = String(text ?? '').trim().slice(0, 2000);
+      if (!cleanText) return res.status(400).json({ error: 'Feedback text required' });
+      const cleanAbout = FEEDBACK_ABOUT_VALUES.includes(about) ? about : null;
+
+      try {
+        const updated = { ...entry, text: cleanText, about: cleanAbout };
+        await persistFeedback(updated);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Creator-only reply — a thread of two (feedback → response), not open
+    // discussion. Allowed to overwrite an existing response since there's
+    // no version-history need here.
+    app.post('/api/feedback/:id/respond', async (req, res) => {
+      const { idToken, response } = req.body ?? {};
+      const entry = feedbackCache.get(req.params.id);
+      if (!entry) return res.status(404).json({ error: 'Feedback not found' });
+      // Self-recorded feedback is the owner's own note — there's no other
+      // party to reply to, so this thread-of-two doesn't apply to it.
+      if (entry.source === 'self-recorded')
+        return res.status(400).json({ error: "Self-recorded feedback can't be responded to." });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const ownerUid = slotAssignments.get(entry.slotKey)?.uid;
+      if (!ownerUid || uid !== ownerUid)
+        return res.status(403).json({ error: 'You do not own this room.' });
+
+      const cleanResponse = String(response ?? '').trim().slice(0, 2000);
+      if (!cleanResponse) return res.status(400).json({ error: 'Response text required' });
+
+      try {
+        const updated = { ...entry, response: cleanResponse, respondedAt: Date.now() };
+        await persistFeedback(updated);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Owner-only, reversible — archiving just hides an entry from the
+    // default view (client-side), it's never deleted. Same endpoint
+    // handles both directions via the `archived` boolean.
+    app.post('/api/feedback/:id/archive', async (req, res) => {
+      const { idToken, archived } = req.body ?? {};
+      const entry = feedbackCache.get(req.params.id);
+      if (!entry) return res.status(404).json({ error: 'Feedback not found' });
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+
+      let uid;
+      try {
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+
+      const ownerUid = slotAssignments.get(entry.slotKey)?.uid;
+      if (!ownerUid || uid !== ownerUid)
+        return res.status(403).json({ error: 'You do not own this room.' });
+
+      try {
+        const updated = { ...entry, archived: !!archived };
+        await persistFeedback(updated);
+        res.json({ ok: true, archived: updated.archived });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Admin-only global toggle (Phase 14). Off by default — the owner
+    // switches it on deliberately for a specific trusted/supervised
+    // audience, and back off for general/unsupervised play.
+    app.get('/admin/settings', (req, res) => {
+      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      res.json({ onlineFeedbackEnabled });
+    });
+
+    app.post('/admin/settings', async (req, res) => {
+      const { password, onlineFeedbackEnabled: next } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      onlineFeedbackEnabled = !!next;
+      try {
+        await persistGlobalConfig();
+        console.log(`[Admin] Online feedback turned ${onlineFeedbackEnabled ? 'ON' : 'OFF'}`);
+        res.json({ ok: true, onlineFeedbackEnabled });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }

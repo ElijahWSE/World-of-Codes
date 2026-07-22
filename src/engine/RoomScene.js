@@ -74,6 +74,14 @@ export default class RoomScene extends Phaser.Scene {
     // ── Creative Process Log (Phase 12) ─────────────────────────────────────
     this._processLogOverlayEl   = null;
     this._processLogOverlayOpen = false;
+
+    // ── Feedback (Phase 14) ──────────────────────────────────────────────────
+    this._feedbackOverlayEl   = null;
+    this._feedbackOverlayOpen = false;
+    this._feedbackEntries      = []; // last-fetched list, cached so filter/archive-toggle clicks can re-render without a refetch
+    this._feedbackAboutFilter  = 'all';
+    this._feedbackShowArchived = false;
+    this._feedbackEditingId    = null; // feedbackId currently showing its edit form, if any
   }
 
   // ── preload ───────────────────────────────────────────────────────────────────
@@ -143,12 +151,14 @@ export default class RoomScene extends Phaser.Scene {
     this._keyM = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M); // submit music (owner)
     this._keyH = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.H); // in-room help (anyone)
     this._keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P); // process log (anyone views, owner edits)
+    this._keyF = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F); // feedback (anyone views/leaves, owner responds)
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._gameOverlayOpen)   this._closeGameOverlay();
       if (this._objectOverlayOpen) this._closeObjectOverlay();
       if (this._musicOverlayOpen)  this._closeMusicOverlay();
       if (this._helpOverlayOpen)   this._closeHelpOverlay();
       if (this._processLogOverlayOpen) this._closeProcessLogOverlay();
+      if (this._feedbackOverlayOpen)   this._closeFeedbackOverlay();
     });
 
     // ── Back button ───────────────────────────────────────────────────────────
@@ -292,6 +302,15 @@ export default class RoomScene extends Phaser.Scene {
       backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
     }).setOrigin(1, 1).setScrollFactor(0).setDepth(200);
 
+    // ── Feedback hint (Phase 14) ──────────────────────────────────────────────
+    // Visible to anyone — reading/leaving feedback has no proximity gate,
+    // same "signpost-style" convention as Process Log. Stacked directly
+    // above it so the two bottom-right hints don't overlap.
+    this._feedbackHint = this.add.text(this.cameras.main.width - 16, this.cameras.main.height - 44, '[F]  Feedback', {
+      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
+    }).setOrigin(1, 1).setScrollFactor(0).setDepth(200);
+
     this._checkOwnership();
     this._fetchAndDrawObjects();
 
@@ -352,6 +371,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-music-overlay')?.remove();
     document.getElementById('woc-help-overlay')?.remove();
     document.getElementById('woc-processlog-overlay')?.remove();
+    document.getElementById('woc-feedback-overlay')?.remove();
     this._gameOverlayEl  = null;
     this._gameOverlayOpen = false;
     this._musicOverlayEl  = null;
@@ -360,6 +380,8 @@ export default class RoomScene extends Phaser.Scene {
     this._helpOverlayOpen = false;
     this._processLogOverlayEl   = null;
     this._processLogOverlayOpen = false;
+    this._feedbackOverlayEl   = null;
+    this._feedbackOverlayOpen = false;
     this._gameAnchorX = this._roomModule?.gameAnchorX ?? this._roomModule?.gameZoneX;
     this._gameAnchorY = this._roomModule?.gameAnchorY ?? this._roomModule?.gameZoneY ?? this._gameAnchorX;
 
@@ -748,11 +770,11 @@ export default class RoomScene extends Phaser.Scene {
     // once a textarea is involved.
     if (Phaser.Input.Keyboard.JustDown(this._keyH)) {
       if (this._helpOverlayOpen) this._closeHelpOverlay();
-      else if (!this._gameOverlayOpen && !this._objectOverlayOpen && !this._musicOverlayOpen && !this._processLogOverlayOpen) this._openHelpOverlay();
+      else if (!this._gameOverlayOpen && !this._objectOverlayOpen && !this._musicOverlayOpen && !this._processLogOverlayOpen && !this._feedbackOverlayOpen) this._openHelpOverlay();
     }
 
     // ── Freeze movement while an overlay is open or an object is being dragged ─
-    if (this._gameOverlayOpen || this._objectOverlayOpen || this._musicOverlayOpen || this._helpOverlayOpen || this._processLogOverlayOpen || this._draggingObjectId) {
+    if (this._gameOverlayOpen || this._objectOverlayOpen || this._musicOverlayOpen || this._helpOverlayOpen || this._processLogOverlayOpen || this._feedbackOverlayOpen || this._draggingObjectId) {
       body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta });
       this._nameTag.setPosition(this.player.x, this.player.y - 24);
@@ -842,6 +864,13 @@ export default class RoomScene extends Phaser.Scene {
     // Music/Object/Game overlays above for the same reason.
     if (Phaser.Input.Keyboard.JustDown(this._keyP)) {
       this._openProcessLogOverlay();
+    }
+
+    // ── Feedback (anyone can view/leave, only the owner can respond) ──────────
+    // Same open-only reasoning as Process Log just above — this overlay also
+    // has textareas, so it can never be a toggle.
+    if (Phaser.Input.Keyboard.JustDown(this._keyF)) {
+      this._openFeedbackOverlay();
     }
 
     // ── Game anchor proximity ─────────────────────────────────────────────────
@@ -1369,6 +1398,10 @@ export default class RoomScene extends Phaser.Scene {
           '📝  PROCESS LOG — [P]\n' +
           '    Reflect on this room\'s creative journey — past / present /\n' +
           '    future. Anyone can read it; only you (the owner) can edit it.\n\n' +
+          '💬  FEEDBACK — [F]\n' +
+          '    Anyone can leave feedback on the room (when the admin has\n' +
+          '    online feedback turned on); you can always add your own\n' +
+          '    self-recorded feedback too, and reply to any entry.\n\n' +
           'The next 6 pages have ready-to-copy Gemini prompts for objects and\n' +
           'music — a DESIGN prompt to iterate on with Gemini (ask for changes,\n' +
           'previews, whatever you like), then an EXPORT prompt to run once\n' +
@@ -1726,6 +1759,458 @@ export default class RoomScene extends Phaser.Scene {
       status.textContent = `Network error: ${e.message}`;
       status.style.color = '#e07a7a';
     } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Feedback (Phase 14) ──────────────────────────────────────────────────────
+  // One thread per room, covering the whole creative package (room + its
+  // game/music/objects) — same room-level scope as the Process Log above,
+  // not a separate thread per creation kind. Each entry may optionally carry
+  // an "about" tag. Two tiers, tagged by source: 'online' (any signed-in
+  // player, only while the admin's global toggle is on) and 'self-recorded'
+  // (owner-only, always available regardless of the toggle). Reading the
+  // list has no gate; submitting/responding does, checked server-side.
+  _createFeedbackOverlay() {
+    const el = document.createElement('div');
+    el.id = 'woc-feedback-overlay';
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:640px;max-width:95vw;max-height:90vh;overflow-y:auto;box-sizing:border-box;font-family:system-ui,sans-serif">
+        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Feedback</h2>
+        <p style="color:#888;font-size:0.82rem;margin-bottom:1rem">What visitors and the creator think of this room, its game, its music, and its objects.</p>
+        <div id="woc-feedback-filterbar" style="margin-bottom:0.75rem"></div>
+        <div id="woc-feedback-list" style="margin-bottom:1.25rem"></div>
+        <div id="woc-feedback-forms"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+          <button id="woc-feedback-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._feedbackOverlayEl = el;
+    document.getElementById('woc-feedback-close').onclick = () => this._closeFeedbackOverlay();
+  }
+
+  async _openFeedbackOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._feedbackOverlayEl) this._createFeedbackOverlay();
+    this._feedbackOverlayEl.style.display = 'flex';
+    this._feedbackOverlayOpen = true;
+    await this._refreshFeedback();
+  }
+
+  _closeFeedbackOverlay() {
+    if (this._feedbackOverlayEl) this._feedbackOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._feedbackOverlayOpen = false;
+    this._feedbackEditingId = null; // don't reopen mid-edit on a stale entry
+  }
+
+  async _refreshFeedback() {
+    const listEl = document.getElementById('woc-feedback-list');
+    listEl.textContent = 'Loading...';
+    try {
+      const res  = await fetch(`/api/feedback?slotKey=${encodeURIComponent(this._roomKey)}`);
+      const data = await res.json();
+      this._feedbackEntries = data.feedback ?? [];
+      this._renderFeedbackList(this._feedbackEntries);
+      this._renderFeedbackForms(!!data.onlineFeedbackEnabled);
+    } catch (e) {
+      listEl.textContent = 'Could not load feedback: ' + e.message;
+    }
+  }
+
+  // Colors are the single source of truth shared by the filter tabs and
+  // each card's "about" chip, so the two can never drift out of sync.
+  static FEEDBACK_ABOUT_META = {
+    room:   { label: 'Room',   bg: '#1a3060', fg: '#8ab4f8' },
+    game:   { label: 'Game',   bg: '#3a1f4d', fg: '#c39bd3' },
+    music:  { label: 'Music',  bg: '#123d2c', fg: '#6fcf97' },
+    object: { label: 'Object', bg: '#4a2f10', fg: '#f4a261' },
+  };
+
+  _renderFeedbackList(entries) {
+    const ABOUT_META = RoomScene.FEEDBACK_ABOUT_META;
+    const filterBarEl = document.getElementById('woc-feedback-filterbar');
+    const listEl      = document.getElementById('woc-feedback-list');
+
+    // Archive-visibility is applied first — an archived entry should vanish
+    // from every tab's count, not just from the list, once "Show archived"
+    // is off.
+    const visibleByArchive = entries.filter(e => this._isRoomOwner ? (this._feedbackShowArchived || !e.archived) : !e.archived);
+    const filtered = visibleByArchive.filter(e => this._feedbackAboutFilter === 'all' || e.about === this._feedbackAboutFilter);
+
+    // ── Filter bar (tabs double as the visual color legend) ─────────────────
+    filterBarEl.innerHTML = '';
+    const tabsRow = document.createElement('div');
+    tabsRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;margin-bottom:0.5rem';
+
+    const makeTab = (value, label, bg, fg) => {
+      const count = value === 'all' ? visibleByArchive.length : visibleByArchive.filter(e => e.about === value).length;
+      const active = this._feedbackAboutFilter === value;
+      const btn = document.createElement('button');
+      btn.textContent = `${label} (${count})`;
+      btn.style.cssText = `padding:0.25rem 0.7rem;border-radius:999px;border:1px solid ${active ? fg : '#1a4a7f'};background:${active ? bg : 'transparent'};color:${fg};cursor:pointer;font-size:0.75rem;font-weight:700`;
+      btn.onclick = () => { this._feedbackAboutFilter = value; this._renderFeedbackList(this._feedbackEntries); };
+      return btn;
+    };
+
+    tabsRow.appendChild(makeTab('all', 'All', '#1a4a7f', '#e0e0e0'));
+    for (const key of Object.keys(ABOUT_META)) {
+      const m = ABOUT_META[key];
+      tabsRow.appendChild(makeTab(key, m.label, m.bg, m.fg));
+    }
+    filterBarEl.appendChild(tabsRow);
+
+    if (this._isRoomOwner) {
+      const archLabel = document.createElement('label');
+      archLabel.style.cssText = 'display:flex;align-items:center;gap:0.4rem;color:#888;font-size:0.78rem;cursor:pointer';
+      const archCheckbox = document.createElement('input');
+      archCheckbox.type = 'checkbox';
+      archCheckbox.checked = this._feedbackShowArchived;
+      archCheckbox.onchange = () => { this._feedbackShowArchived = archCheckbox.checked; this._renderFeedbackList(this._feedbackEntries); };
+      archLabel.appendChild(archCheckbox);
+      archLabel.appendChild(document.createTextNode('Show archived'));
+      filterBarEl.appendChild(archLabel);
+    }
+
+    // ── List ──────────────────────────────────────────────────────────────
+    listEl.innerHTML = '';
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<p style="color:#666;font-style:italic;font-size:0.85rem">No feedback here yet.</p>';
+      return;
+    }
+    for (const entry of filtered) {
+      const card = document.createElement('div');
+      card.style.cssText = `background:#0a2040;border:1px solid #1a4a7f;border-radius:6px;padding:0.85rem;margin-bottom:0.75rem${entry.archived ? ';opacity:0.6' : ''}`;
+
+      const headerRow = document.createElement('div');
+      headerRow.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;margin-bottom:0.4rem';
+
+      const meta = document.createElement('div');
+      meta.style.cssText = 'font-size:0.75rem;color:#888;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap';
+      const who = document.createElement('span');
+      who.textContent = entry.source === 'online' ? (entry.authorName || 'A player') : "Self-recorded (creator)";
+      meta.appendChild(who);
+      if (entry.about && ABOUT_META[entry.about]) {
+        const m = ABOUT_META[entry.about];
+        const chip = document.createElement('span');
+        chip.textContent = m.label;
+        chip.style.cssText = `background:${m.bg};color:${m.fg};padding:0.1rem 0.55rem;border-radius:999px;font-size:0.7rem;font-weight:700`;
+        meta.appendChild(chip);
+      }
+      if (entry.archived) {
+        const archTag = document.createElement('span');
+        archTag.textContent = 'Archived';
+        archTag.style.cssText = 'color:#666;font-style:italic;font-size:0.72rem';
+        meta.appendChild(archTag);
+      }
+      headerRow.appendChild(meta);
+
+      // Self-recorded entries have no separate author — only the room
+      // owner can edit them. Online entries can only be edited by whoever
+      // originally left them, which may or may not be the room owner.
+      // Either way, archived entries must be unarchived first (server
+      // enforces this too).
+      const canEdit = !entry.archived && (
+        entry.source === 'self-recorded' ? this._isRoomOwner : entry.authorUid === this._playerUid
+      );
+      const isEditing = this._feedbackEditingId === entry.feedbackId;
+
+      const rightControls = document.createElement('div');
+      rightControls.style.cssText = 'display:flex;align-items:center;gap:0.4rem;flex-shrink:0';
+
+      if (canEdit && !isEditing) {
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Edit';
+        editBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
+        editBtn.onclick = () => { this._feedbackEditingId = entry.feedbackId; this._renderFeedbackList(this._feedbackEntries); };
+        rightControls.appendChild(editBtn);
+      }
+
+      if (this._isRoomOwner) {
+        const archBtn = document.createElement('button');
+        archBtn.textContent = entry.archived ? 'Unarchive' : 'Archive';
+        archBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
+        const archStatus = document.createElement('span');
+        archStatus.style.cssText = 'font-size:0.7rem;color:#e07a7a';
+        archBtn.onclick = () => this._archiveFeedback(entry.feedbackId, !entry.archived, archBtn, archStatus);
+        rightControls.appendChild(archBtn);
+        rightControls.appendChild(archStatus);
+      }
+
+      if (rightControls.childElementCount > 0) headerRow.appendChild(rightControls);
+      card.appendChild(headerRow);
+
+      if (isEditing) {
+        const editSelect = document.createElement('select');
+        editSelect.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
+        editSelect.innerHTML = `
+          <option value="">What's this about? (optional)</option>
+          <option value="room">Room</option>
+          <option value="game">Game</option>
+          <option value="music">Music</option>
+          <option value="object">An object</option>`;
+        editSelect.value = entry.about || '';
+        card.appendChild(editSelect);
+
+        const editTextarea = document.createElement('textarea');
+        editTextarea.value = entry.text;
+        editTextarea.style.cssText = 'width:100%;height:60px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem';
+        card.appendChild(editTextarea);
+
+        const editRow = document.createElement('div');
+        editRow.style.cssText = 'display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem';
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = 'Save';
+        saveBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+        const editStatus = document.createElement('span');
+        editStatus.style.cssText = 'font-size:0.78rem';
+        saveBtn.onclick = () => this._saveFeedbackEdit(entry.feedbackId, editSelect, editTextarea, saveBtn, editStatus);
+        cancelBtn.onclick = () => { this._feedbackEditingId = null; this._renderFeedbackList(this._feedbackEntries); };
+        editRow.appendChild(saveBtn);
+        editRow.appendChild(cancelBtn);
+        editRow.appendChild(editStatus);
+        card.appendChild(editRow);
+      } else {
+        const text = document.createElement('div');
+        text.style.cssText = 'color:#e0e0e0;font-size:0.88rem;white-space:pre-wrap;margin-bottom:0.5rem';
+        text.textContent = entry.text;
+        card.appendChild(text);
+
+        if (entry.response) {
+          const resp = document.createElement('div');
+          resp.style.cssText = 'background:#0d1b2e;border-left:3px solid #88ccff;padding:0.5rem 0.75rem;border-radius:4px;font-size:0.82rem;color:#ccc;white-space:pre-wrap';
+          resp.textContent = `Creator's reply: ${entry.response}`;
+          card.appendChild(resp);
+        } else if (this._isRoomOwner && entry.source === 'online') {
+          // Self-recorded entries are the owner's own note — no other
+          // party to reply to, so no reply box for those.
+          const replyWrap = document.createElement('div');
+          replyWrap.style.cssText = 'margin-top:0.5rem';
+          const textarea = document.createElement('textarea');
+          textarea.placeholder = 'Reply to this feedback...';
+          textarea.style.cssText = 'width:100%;height:50px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.4rem';
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:0.6rem';
+          const btn = document.createElement('button');
+          btn.textContent = 'Respond';
+          btn.style.cssText = 'padding:0.35rem 0.9rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+          const status = document.createElement('span');
+          status.style.cssText = 'font-size:0.78rem';
+          btn.onclick = () => this._respondToFeedback(entry.feedbackId, textarea, btn, status);
+          row.appendChild(btn);
+          row.appendChild(status);
+          replyWrap.appendChild(textarea);
+          replyWrap.appendChild(row);
+          card.appendChild(replyWrap);
+        }
+      }
+
+      listEl.appendChild(card);
+    }
+  }
+
+  async _respondToFeedback(feedbackId, textarea, btn, status) {
+    const response = textarea.value.trim();
+    if (!response) {
+      status.textContent = 'Write a reply first.';
+      status.style.color = '#e07a7a';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+    status.style.color = '#aaa';
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, response }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Failed to save reply';
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        await this._refreshFeedback();
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
+  }
+
+  // Owner-only, reversible — hides (or restores) an entry from the default
+  // view. Full refetch on success, same as respond/submit above, so the
+  // filter-tab counts and "Show archived" list both stay accurate.
+  async _archiveFeedback(feedbackId, archived, btn, status) {
+    btn.disabled = true;
+    status.textContent = '';
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, archived }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Failed to update';
+        btn.disabled = false;
+      } else {
+        await this._refreshFeedback();
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      btn.disabled = false;
+    }
+  }
+
+  // Saves an in-place edit to an entry's own text/about tag. Permission is
+  // re-checked server-side regardless of what the Edit button's visibility
+  // already implied client-side.
+  async _saveFeedbackEdit(feedbackId, selectEl, textareaEl, btn, status) {
+    const text = textareaEl.value.trim();
+    if (!text) {
+      status.textContent = 'Write something first.';
+      status.style.color = '#e07a7a';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+    status.style.color = '#aaa';
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, about: selectEl.value || null, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Failed to save';
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        this._feedbackEditingId = null;
+        await this._refreshFeedback();
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
+      btn.disabled = false;
+    }
+  }
+
+  // Builds the "leave feedback" / "add self-recorded feedback" forms below
+  // the list. Rebuilt on every open/refresh since the global toggle can
+  // change between visits and this._isRoomOwner is resolved async.
+  _renderFeedbackForms(onlineEnabled) {
+    const wrap = document.getElementById('woc-feedback-forms');
+    wrap.innerHTML = '';
+
+    const buildForm = ({ heading, buttonLabel, source, disabledNote }) => {
+      const box = document.createElement('div');
+      box.style.cssText = 'background:#0a2040;border:1px solid #1a4a7f;border-radius:6px;padding:0.85rem;margin-bottom:0.85rem';
+      const h = document.createElement('div');
+      h.style.cssText = 'color:#aaa;font-size:0.82rem;font-weight:600;margin-bottom:0.5rem';
+      h.textContent = heading;
+      box.appendChild(h);
+
+      if (disabledNote) {
+        const note = document.createElement('p');
+        note.style.cssText = 'color:#666;font-style:italic;font-size:0.8rem;margin:0';
+        note.textContent = disabledNote;
+        box.appendChild(note);
+        return box;
+      }
+
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
+      select.innerHTML = `
+        <option value="">What's this about? (optional)</option>
+        <option value="room">Room</option>
+        <option value="game">Game</option>
+        <option value="music">Music</option>
+        <option value="object">An object</option>`;
+      box.appendChild(select);
+
+      const textarea = document.createElement('textarea');
+      textarea.placeholder = 'Write your feedback...';
+      textarea.style.cssText = 'width:100%;height:60px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem';
+      box.appendChild(textarea);
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:0.6rem';
+      const btn = document.createElement('button');
+      btn.textContent = buttonLabel;
+      btn.style.cssText = 'padding:0.4rem 1rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem';
+      const status = document.createElement('span');
+      status.style.cssText = 'font-size:0.78rem';
+      btn.onclick = () => this._submitFeedback(source, select, textarea, btn, status);
+      row.appendChild(btn);
+      row.appendChild(status);
+      box.appendChild(row);
+
+      return box;
+    };
+
+    // Owners can only ever leave self-recorded feedback about their own
+    // room — the "leave feedback" (online) form, enabled or disabled, is
+    // for visitors only. Enforced server-side too (see POST /api/feedback).
+    if (!this._isRoomOwner) {
+      if (onlineEnabled) {
+        wrap.appendChild(buildForm({ heading: 'Leave feedback', buttonLabel: 'Submit', source: 'online' }));
+      } else {
+        wrap.appendChild(buildForm({ heading: 'Leave feedback', disabledNote: 'Online feedback is currently turned off for this world.' }));
+      }
+    }
+
+    if (this._isRoomOwner) {
+      wrap.appendChild(buildForm({ heading: 'Add self-recorded feedback (e.g. from an in-person session)', buttonLabel: 'Add', source: 'self-recorded' }));
+    }
+  }
+
+  async _submitFeedback(source, select, textarea, btn, status) {
+    const text = textarea.value.trim();
+    if (!text) {
+      status.textContent = 'Write something first.';
+      status.style.color = '#e07a7a';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+    status.style.color = '#aaa';
+    try {
+      const idToken = await getFreshIdToken();
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, slotKey: this._roomKey, about: select.value || null, text, source }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error ?? 'Failed to submit feedback';
+        status.style.color = '#e07a7a';
+        btn.disabled = false;
+      } else {
+        textarea.value = '';
+        select.value = '';
+        await this._refreshFeedback();
+      }
+    } catch (e) {
+      status.textContent = `Network error: ${e.message}`;
+      status.style.color = '#e07a7a';
       btn.disabled = false;
     }
   }
