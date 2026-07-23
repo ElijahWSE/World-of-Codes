@@ -35,6 +35,7 @@ export default class RoomScene extends Phaser.Scene {
     this._playerUid     = data?.playerUid     ?? null;
     this._playerCharacterConfig = data?.playerCharacterConfig ?? null;
     this._colyseusRoom  = data?.colyseusRoom  ?? null;
+    this._inPersonSessionId = data?.inPersonSessionId ?? null; // Phase 15
     this._roomKey       = data?.roomKey       ?? null;
     this._gameFileName  = data?.gameFileName  ?? null;  // separate game file for this room
     this._gameVersion   = data?.gameVersion   ?? null;  // cache-buster for the import() below
@@ -353,6 +354,25 @@ export default class RoomScene extends Phaser.Scene {
       if (this._colyseusRoom) this._colyseusRoom.send('exitRoom');
       this.scene.wake('WorldScene', { returnDoor: this._returnDoor });
       this.scene.stop();
+    };
+
+    // Phase 15 — called by WorldScene when an in-person session ends (or any
+    // future event that must pull a player out of a room regardless of what
+    // they're doing). A normal exitRoom() only ever runs after the overlay
+    // toggles above (ESC / close button) have already hidden any open
+    // overlay, so it never bothers removing the DOM nodes — the next
+    // RoomScene's create() lazily sweeps them up instead (see the
+    // getElementById(...).remove() calls a few lines below). A forced exit
+    // has no such next-create() to rely on, so it must remove them itself or
+    // they'd linger visibly over WorldScene after this scene stops.
+    this.forceExit = () => {
+      document.getElementById('woc-game-overlay')?.remove();
+      document.getElementById('woc-object-overlay')?.remove();
+      document.getElementById('woc-music-overlay')?.remove();
+      document.getElementById('woc-help-overlay')?.remove();
+      document.getElementById('woc-processlog-overlay')?.remove();
+      document.getElementById('woc-feedback-overlay')?.remove();
+      this.exitRoom();
     };
 
     // ── Game anchor hint ──────────────────────────────────────────────────────
@@ -1818,7 +1838,11 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       this._feedbackEntries = data.feedback ?? [];
       this._renderFeedbackList(this._feedbackEntries);
-      this._renderFeedbackForms(!!data.onlineFeedbackEnabled);
+      // Phase 15 — a player inside an active in-person session gets the
+      // form even when the global toggle is off; the server independently
+      // re-validates session membership on submit (see POST /api/feedback),
+      // so this client-side flag is only ever a UI convenience, not a gate.
+      this._renderFeedbackForms(!!data.onlineFeedbackEnabled || !!this._inPersonSessionId);
     } catch (e) {
       listEl.textContent = 'Could not load feedback: ' + e.message;
     }
@@ -2196,7 +2220,10 @@ export default class RoomScene extends Phaser.Scene {
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, slotKey: this._roomKey, about: select.value || null, text, source }),
+        body: JSON.stringify({
+          idToken, slotKey: this._roomKey, about: select.value || null, text, source,
+          inPersonSessionId: this._inPersonSessionId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {

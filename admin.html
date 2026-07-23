@@ -119,10 +119,37 @@
   <div class="status" id="feedback-toggle-status"></div>
 </section>
 
+<!-- In-Person Sessions (Phase 15) -->
+<section>
+  <h2>In-Person Sessions</h2>
+  <p class="note" style="margin-top:0;margin-bottom:1rem">Start a temporary, invite-only session for a facilitated group. Invited players see only each other while it's active; creations they make still go through the normal approval queue. Online feedback is implicitly live for the session's duration regardless of the toggle above, and is auto-archived (not deleted) once the session ends.</p>
+
+  <div id="session-active-box" style="display:none">
+    <p style="margin-bottom:0.35rem"><strong>Active session</strong> — started <span id="session-started-at"></span></p>
+    <p class="note" style="margin-top:0;margin-bottom:0.75rem">Roster: <span id="session-roster-names"></span></p>
+    <p class="note" id="session-ending-note" style="display:none;margin-top:0;margin-bottom:0.75rem;color:#e9c46a"></p>
+    <div class="btn-row" style="margin-bottom:0">
+      <button class="btn btn-danger btn-small" id="end-session-btn" onclick="endSession()">End Session</button>
+      <button class="btn btn-danger btn-small" onclick="endSessionNow()">Force End Now</button>
+    </div>
+  </div>
+
+  <div id="session-start-box">
+    <p class="note" style="margin-top:0;margin-bottom:0.5rem">Pick players for the roster:</p>
+    <div id="session-roster-picker" style="margin-bottom:0.75rem;display:flex;flex-direction:column;gap:0.35rem;max-height:220px;overflow-y:auto">
+      <p class="empty-state">Loading players...</p>
+    </div>
+    <button class="btn btn-small" onclick="startSession()">Start Session</button>
+  </div>
+
+  <div class="status" id="session-status"></div>
+</section>
+
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
   <button class="tab-btn" onclick="switchTab('pending')">Pending <span id="pending-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
+  <button class="tab-btn" onclick="switchTab('session')">Session</button>
 </div>
 
 <!-- ── Tab: Room Management ─────────────────────────────────────────────────── -->
@@ -224,6 +251,26 @@
   </section>
 </div>
 
+<!-- ── Tab: Session (Phase 15) ─────────────────────────────────────────────── -->
+<div id="tab-session" class="tab-pane">
+  <section>
+    <h2>Active Session — At a Glance</h2>
+    <p class="note" style="margin-top:0;margin-bottom:1rem">
+      Everything below is scoped to just the currently active in-person session's roster,
+      so you don't have to cross-reference the main Pending/Feedback views while facilitating.
+      Start a session in the "In-Person Sessions" box above first.
+    </p>
+    <div id="session-tab-empty" class="empty-state">No active session.</div>
+    <div id="session-tab-content" style="display:none">
+      <h3>Pending submissions from this session's roster</h3>
+      <div id="session-pending-list" style="margin-bottom:1.5rem"></div>
+
+      <h3>Feedback tagged to this session <span class="note" style="display:inline">(read-only — respond/archive from the room's [F] panel in-game, same as always)</span></h3>
+      <div id="session-feedback-list"></div>
+    </div>
+  </section>
+</div>
+
 <script>
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getPassword() { return sessionStorage.getItem('woc_admin_pw') || ''; }
@@ -251,6 +298,7 @@ function switchTab(name) {
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`).classList.add('active');
   if (name === 'rooms') loadSlots();
   if (name === 'pending') loadPending();
+  if (name === 'session') loadSessionTab();
 }
 
 // ── Slot grid ─────────────────────────────────────────────────────────────────
@@ -326,10 +374,14 @@ async function serverValidate(code, kind) {
 }
 
 // Fetches full code for a pending submission and validates it inline.
-async function validatePendingCode(id, kind) {
+// `scope` namespaces element ids ('main' or 'session') — the same
+// submission can be rendered in both the main Pending tab and the
+// session-scoped tab at once (tab-panes stay in the DOM, just hidden),
+// so ids must not collide between them.
+async function validatePendingCode(id, kind, scope = 'main') {
   const pw      = getPassword();
-  const box     = document.getElementById(`val-${id}`);
-  const fullEl  = document.getElementById(`full-${id}`);
+  const box     = document.getElementById(`${scope}-val-${id}`);
+  const fullEl  = document.getElementById(`${scope}-full-${id}`);
 
   if (!pw) { box.innerHTML = '<p style="color:#e07a7a;font-size:0.82rem">Enter and save your password first.</p>'; box.style.display = 'block'; return; }
 
@@ -434,6 +486,41 @@ async function assignRoom() {
 }
 
 // ── Pending (all kinds) ──────────────────────────────────────────────────────
+// Shared by the main Pending tab and the session-scoped tab's filtered view —
+// same card, same approve/reject buttons, so moderation behaves identically
+// no matter which tab it's reviewed from.
+// `scope` ('main' or 'session') namespaces every element id in the card —
+// the same submission can render in both the main Pending tab and the
+// session-scoped tab at once (tab-panes stay in the DOM, just hidden via
+// CSS), so ids must not collide between the two copies.
+function renderPendingCard(s, scope = 'main') {
+  return `
+      <div class="pending-card" id="${scope}-psub-${s.id}">
+        <div class="meta">
+          <strong style="color:#e0e0e0">${escHtml(s.displayName)}</strong>
+          <span class="badge" style="background:${s.kind === 'room' ? '#2a4a7f' : '#1a3a6a'};color:#aaccff">${s.kind.toUpperCase()}</span>
+          <span class="badge badge-slot">${s.slotKey}</span>
+          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
+          — ${new Date(s.submittedAt).toLocaleString()}
+        </div>
+        ${s.meta?.versionDescription ? `<div class="note" style="color:#aaa;font-size:0.8rem;margin-bottom:0.5rem">"${escHtml(s.meta.versionDescription)}"</div>` : ''}
+        ${s.meta?.remixedFrom ? `<div class="note" style="color:#a7c957;font-size:0.78rem;margin-bottom:0.5rem">Remixed from: ${escHtml(s.meta.remixedFrom)}</div>` : ''}
+        ${s.meta?.dropVersionId ? `<div class="note" style="color:#e9c46a;font-size:0.78rem;margin-bottom:0.5rem">Will replace version: ${escHtml(s.meta.dropVersionId)}</div>` : ''}
+        <div class="preview" id="${scope}-preview-${s.id}">${escHtml(s.codePreview)}…</div>
+        <div class="full-code" id="${scope}-full-${s.id}"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}', '${scope}')">View Full Code</button>
+          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', '${s.kind}', '${scope}')">Validate Code</button>
+          <button class="btn btn-success btn-small" onclick="approveSubmission('${s.id}', '${s.kind}', '${escAttr(s.displayName)}', ${!!s.isUpdate})">✓ Approve</button>
+        </div>
+        <div class="inline-validation" id="${scope}-val-${s.id}"></div>
+        <div class="reject-row">
+          <input class="reject-input" type="text" id="${scope}-reject-reason-${s.id}" placeholder="Rejection reason (optional)">
+          <button class="btn btn-danger btn-small" onclick="rejectSubmission('${s.id}', '${scope}')">✗ Reject</button>
+        </div>
+      </div>`;
+}
+
 async function loadPending() {
   const list = document.getElementById('pending-list');
   const pw   = getPassword();
@@ -448,40 +535,16 @@ async function loadPending() {
     if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
     else badge.style.display = 'none';
     if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending submissions.</p>'; return; }
-    list.innerHTML = data.map(s => `
-      <div class="pending-card" id="psub-${s.id}">
-        <div class="meta">
-          <strong style="color:#e0e0e0">${escHtml(s.displayName)}</strong>
-          <span class="badge" style="background:${s.kind === 'room' ? '#2a4a7f' : '#1a3a6a'};color:#aaccff">${s.kind.toUpperCase()}</span>
-          <span class="badge badge-slot">${s.slotKey}</span>
-          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
-          — ${new Date(s.submittedAt).toLocaleString()}
-        </div>
-        ${s.meta?.versionDescription ? `<div class="note" style="color:#aaa;font-size:0.8rem;margin-bottom:0.5rem">"${escHtml(s.meta.versionDescription)}"</div>` : ''}
-        ${s.meta?.remixedFrom ? `<div class="note" style="color:#a7c957;font-size:0.78rem;margin-bottom:0.5rem">Remixed from: ${escHtml(s.meta.remixedFrom)}</div>` : ''}
-        ${s.meta?.dropVersionId ? `<div class="note" style="color:#e9c46a;font-size:0.78rem;margin-bottom:0.5rem">Will replace version: ${escHtml(s.meta.dropVersionId)}</div>` : ''}
-        <div class="preview" id="preview-${s.id}">${escHtml(s.codePreview)}…</div>
-        <div class="full-code" id="full-${s.id}"></div>
-        <div class="btn-row">
-          <button class="btn btn-secondary btn-small" onclick="toggleFullCode('${s.id}')">View Full Code</button>
-          <button class="btn btn-secondary btn-small" onclick="validatePendingCode('${s.id}', '${s.kind}')">Validate Code</button>
-          <button class="btn btn-success btn-small" onclick="approveSubmission('${s.id}', '${s.kind}', '${escAttr(s.displayName)}', ${!!s.isUpdate})">✓ Approve</button>
-        </div>
-        <div class="inline-validation" id="val-${s.id}"></div>
-        <div class="reject-row">
-          <input class="reject-input" type="text" id="reject-reason-${s.id}" placeholder="Rejection reason (optional)">
-          <button class="btn btn-danger btn-small" onclick="rejectSubmission('${s.id}')">✗ Reject</button>
-        </div>
-      </div>`).join('');
+    list.innerHTML = data.map(s => renderPendingCard(s, 'main')).join('');
   } catch (e) {
     list.innerHTML = `<p style="color:#e07a7a">Failed: ${e.message}</p>`;
   }
 }
 
-async function toggleFullCode(id) {
+async function toggleFullCode(id, scope = 'main') {
   const pw      = getPassword();
-  const preview = document.getElementById(`preview-${id}`);
-  const full    = document.getElementById(`full-${id}`);
+  const preview = document.getElementById(`${scope}-preview-${id}`);
+  const full    = document.getElementById(`${scope}-full-${id}`);
   if (full.style.display === 'block') { full.style.display = 'none'; preview.style.display = 'block'; return; }
   if (!full.textContent) {
     try {
@@ -511,14 +574,18 @@ async function approveSubmission(submissionId, kind, name, isUpdate = false) {
     if (!res.ok) { showStatus('pending-status', `Error: ${data.error}`, false); return; }
     const okMsg = isUpdate ? `✓ Update approved! File replaced (${data.fileName}).` : `✓ Approved! Now live (${data.fileName}).`;
     showStatus('pending-status', okMsg, true);
-    document.getElementById(`psub-${submissionId}`)?.remove();
+    // Remove from both possible render locations (main + session tabs) —
+    // the submission is gone everywhere once approved, regardless of which
+    // tab's button was clicked.
+    document.getElementById(`main-psub-${submissionId}`)?.remove();
+    document.getElementById(`session-psub-${submissionId}`)?.remove();
     loadSlots();
   } catch (e) { showStatus('pending-status', `Failed: ${e.message}`, false); }
 }
 
-async function rejectSubmission(submissionId) {
+async function rejectSubmission(submissionId, scope = 'main') {
   const pw     = getPassword();
-  const reason = document.getElementById(`reject-reason-${submissionId}`)?.value.trim();
+  const reason = document.getElementById(`${scope}-reject-reason-${submissionId}`)?.value.trim();
   if (!pw) { alert('Enter and save your password first.'); return; }
   try {
     const res  = await fetch('/admin/reject', {
@@ -528,7 +595,8 @@ async function rejectSubmission(submissionId) {
     const data = await res.json();
     if (!res.ok) { showStatus('pending-status', `Error: ${data.error}`, false); return; }
     showStatus('pending-status', 'Submission rejected. Player notified.', true);
-    document.getElementById(`psub-${submissionId}`)?.remove();
+    document.getElementById(`main-psub-${submissionId}`)?.remove();
+    document.getElementById(`session-psub-${submissionId}`)?.remove();
   } catch (e) { showStatus('pending-status', `Failed: ${e.message}`, false); }
 }
 
@@ -583,6 +651,222 @@ async function saveFeedbackToggle() {
   }
 }
 
+// ── In-Person Sessions (Phase 15) ──────────────────────────────────────────────
+let _sessionEndingInterval = null;
+
+async function loadSessionStatus() {
+  try {
+    const res = await fetch(`/admin/session/active?password=${encodeURIComponent(getPassword())}`);
+    const data = await res.json();
+    if (!res.ok) return;
+    if (data.session) {
+      await showSessionActive(data.session, data.endingAt);
+    } else {
+      window._activeSessionId = null;
+      if (_sessionEndingInterval) { clearInterval(_sessionEndingInterval); _sessionEndingInterval = null; }
+      document.getElementById('session-active-box').style.display = 'none';
+      document.getElementById('session-start-box').style.display = 'block';
+      loadRosterPicker();
+    }
+  } catch (e) { /* silent — section just stays at its last-known state */ }
+}
+
+async function showSessionActive(session, endingAt) {
+  window._activeSessionId = session.sessionId;
+  document.getElementById('session-start-box').style.display = 'none';
+  document.getElementById('session-active-box').style.display = 'block';
+  document.getElementById('session-started-at').textContent = new Date(session.startedAt).toLocaleString();
+  document.getElementById('session-roster-names').textContent = session.roster.join(', ');
+  try {
+    const res = await fetch(`/admin/session/roster-options?password=${encodeURIComponent(getPassword())}`);
+    const data = await res.json();
+    const names = (data.users ?? []).filter(u => session.roster.includes(u.uid)).map(u => u.displayName);
+    if (names.length) document.getElementById('session-roster-names').textContent = names.join(', ');
+  } catch (e) { /* falls back to the raw uid list already rendered above */ }
+
+  // 60-second grace period between clicking End Session and the session
+  // actually finalizing (see /admin/session/end) — players get a live
+  // countdown and can leave early individually; mirror that countdown here
+  // so admin isn't left guessing whether it's still in progress.
+  const noteEl = document.getElementById('session-ending-note');
+  const btn    = document.getElementById('end-session-btn');
+  if (_sessionEndingInterval) { clearInterval(_sessionEndingInterval); _sessionEndingInterval = null; }
+  if (endingAt) {
+    btn.disabled = true;
+    btn.textContent = 'Ending…';
+    const tick = () => {
+      const secsLeft = Math.max(0, Math.ceil((endingAt - Date.now()) / 1000));
+      noteEl.textContent = `Ending in ${secsLeft}s — players have been notified and can leave early.`;
+      noteEl.style.display = 'block';
+      if (secsLeft <= 0) {
+        clearInterval(_sessionEndingInterval);
+        _sessionEndingInterval = null;
+        loadSessionStatus();
+        loadSessionTab();
+      }
+    };
+    tick();
+    _sessionEndingInterval = setInterval(tick, 1000);
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'End Session';
+    noteEl.style.display = 'none';
+  }
+}
+
+async function loadRosterPicker() {
+  const box = document.getElementById('session-roster-picker');
+  try {
+    const res = await fetch(`/admin/session/roster-options?password=${encodeURIComponent(getPassword())}`);
+    const data = await res.json();
+    if (!res.ok) { box.innerHTML = `<p style="color:#e07a7a">${escHtml(data.error)}</p>`; return; }
+    if (!data.users?.length) { box.innerHTML = '<p class="empty-state">No registered players yet.</p>'; return; }
+    box.innerHTML = data.users.map(u => `
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0;font-size:0.85rem;cursor:pointer">
+        <input type="checkbox" class="session-roster-checkbox" value="${escAttr(u.uid)}">
+        <span>${escHtml(u.displayName)}${u.email ? ' <span style="color:#666">(' + escHtml(u.email) + ')</span>' : ''}</span>
+      </label>`).join('');
+  } catch (e) {
+    box.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+  }
+}
+
+async function startSession() {
+  const password = getPassword();
+  if (!password) { alert('Enter and save your password first.'); return; }
+  const roster = [...document.querySelectorAll('.session-roster-checkbox:checked')].map(cb => cb.value);
+  if (roster.length === 0) { showStatus('session-status', 'Pick at least one player.', false); return; }
+  if (!confirm(`Start a session with ${roster.length} player(s)?`)) return;
+  try {
+    const res = await fetch('/admin/session/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, roster }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('session-status', data.error ?? 'Failed to start session', false); return; }
+    showStatus('session-status', 'Session started.', true);
+    loadSessionStatus();
+    loadSessionTab();
+  } catch (e) {
+    showStatus('session-status', `Network error: ${e.message}`, false);
+  }
+}
+
+async function endSession() {
+  const password = getPassword();
+  if (!password) { alert('Enter and save your password first.'); return; }
+  if (!window._activeSessionId) return;
+  if (!confirm('End the active session? Players get a 60-second heads-up (and can leave early) before being returned to the main world; session-tagged online feedback will be auto-archived once it finalizes.')) return;
+  try {
+    const res = await fetch('/admin/session/end', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, sessionId: window._activeSessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('session-status', data.error ?? 'Failed to end session', false); return; }
+    showStatus('session-status', 'Ending session — 60-second countdown started for players.', true);
+    loadSessionStatus();
+    loadSessionTab();
+  } catch (e) {
+    showStatus('session-status', `Network error: ${e.message}`, false);
+  }
+}
+
+// Veto — skips (or preempts) the 60s grace period entirely, whether or not
+// End Session was ever clicked first. Players are pulled back to the main
+// world immediately (same force-out + transition path as the normal
+// countdown, just with no warning beforehand).
+async function endSessionNow() {
+  const password = getPassword();
+  if (!password) { alert('Enter and save your password first.'); return; }
+  if (!window._activeSessionId) return;
+  if (!confirm('Force-end the session immediately? Players are returned to the main world right away with no countdown; session-tagged online feedback will be auto-archived.')) return;
+  try {
+    const res = await fetch('/admin/session/end-now', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, sessionId: window._activeSessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus('session-status', data.error ?? 'Failed to end session', false); return; }
+    showStatus('session-status', 'Session force-ended.', true);
+    loadSessionStatus();
+    loadSessionTab();
+  } catch (e) {
+    showStatus('session-status', `Network error: ${e.message}`, false);
+  }
+}
+
+// ── Session tab (Phase 15) — pending + feedback filtered to the active
+// session's roster only, so admin isn't cross-referencing the main tabs
+// while facilitating a group. ───────────────────────────────────────────────
+async function loadSessionTab() {
+  const pw = getPassword();
+  if (!pw) { document.getElementById('session-tab-empty').textContent = 'Enter and save your password first.'; document.getElementById('session-tab-empty').style.display = 'block'; document.getElementById('session-tab-content').style.display = 'none'; return; }
+
+  let session;
+  try {
+    const res = await fetch(`/admin/session/active?password=${encodeURIComponent(pw)}`);
+    const data = await res.json();
+    session = data.session ?? null;
+  } catch (e) {
+    document.getElementById('session-tab-empty').textContent = `Failed to load: ${e.message}`;
+    document.getElementById('session-tab-empty').style.display = 'block';
+    document.getElementById('session-tab-content').style.display = 'none';
+    return;
+  }
+
+  if (!session) {
+    document.getElementById('session-tab-empty').textContent = 'No active session.';
+    document.getElementById('session-tab-empty').style.display = 'block';
+    document.getElementById('session-tab-content').style.display = 'none';
+    return;
+  }
+  document.getElementById('session-tab-empty').style.display = 'none';
+  document.getElementById('session-tab-content').style.display = 'block';
+
+  // Pending submissions submitted by anyone in the roster (a player can only
+  // ever submit into a slot that's unclaimed or already their own, per
+  // /api/submit's ownership check — so "by submitter" is the only filter
+  // that makes sense here; there's no such thing as submitting into someone
+  // else's room).
+  const pendingBox = document.getElementById('session-pending-list');
+  try {
+    const res  = await fetch(`/admin/pending?password=${encodeURIComponent(pw)}`);
+    const all  = await res.json();
+    const mine = Array.isArray(all) ? all.filter(s => s.uid && session.roster.includes(s.uid)) : [];
+    pendingBox.innerHTML = mine.length
+      ? mine.map(s => renderPendingCard(s, 'session')).join('')
+      : '<p class="empty-state">No pending submissions from this session\'s roster.</p>';
+  } catch (e) {
+    pendingBox.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+  }
+
+  // Read-only feedback view — shows what's tagged to this session and will
+  // be auto-archived once it ends.
+  const feedbackBox = document.getElementById('session-feedback-list');
+  try {
+    const res  = await fetch(`/admin/session/${encodeURIComponent(session.sessionId)}/feedback?password=${encodeURIComponent(pw)}`);
+    const data = await res.json();
+    const list = data.feedback ?? [];
+    feedbackBox.innerHTML = list.length
+      ? list.map(f => `
+        <div class="pending-card">
+          <div class="meta">
+            <strong style="color:#e0e0e0">${escHtml(f.authorName ?? 'A player')}</strong>
+            <span class="badge badge-slot">${escHtml(f.slotKey)}</span>
+            ${f.about ? `<span class="badge" style="background:#1a3a6a;color:#aaccff">${escHtml(f.about)}</span>` : ''}
+            ${f.archived ? '<span class="badge" style="background:#444;color:#aaa">ARCHIVED</span>' : ''}
+            — ${new Date(f.createdAt).toLocaleString()}
+          </div>
+          <div class="preview" style="max-height:none">${escHtml(f.text)}</div>
+          ${f.response ? `<div class="note" style="color:#a7c957;margin-top:0.5rem">Owner response: ${escHtml(f.response)}</div>` : ''}
+        </div>`).join('')
+      : '<p class="empty-state">No feedback tagged to this session yet.</p>';
+  } catch (e) {
+    feedbackBox.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+  }
+}
+
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -599,6 +883,7 @@ if (sessionStorage.getItem('woc_admin_pw')) {
 }
 loadSlots();
 loadFeedbackToggle();
+loadSessionStatus();
 </script>
 </body>
 </html>

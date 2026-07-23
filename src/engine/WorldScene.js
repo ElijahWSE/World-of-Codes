@@ -50,6 +50,14 @@ export default class WorldScene extends Phaser.Scene {
     this._claimIsUpdate   = false;
     this._claimOverlayEl  = null;
     this._fetchingPortals = false;
+    // Phase 15 — set once the client has joined the 'session' room type
+    // instead of 'world'; null while in the persistent main world.
+    this._activeInPersonSessionId = null;
+    this._sessionInviteEl = null;
+    this._worldBadgeEl = null;
+    this._transitioning = false;
+    this._sessionEndingEl = null;
+    this._sessionEndingInterval = null;
   }
 
   init(data) {
@@ -97,6 +105,10 @@ export default class WorldScene extends Phaser.Scene {
         this.colyseusRoom.leave();
         this.colyseusRoom = null;
       }
+      if (this._sessionInviteEl) { this._sessionInviteEl.remove(); this._sessionInviteEl = null; }
+      if (this._worldBadgeEl) { this._worldBadgeEl.remove(); this._worldBadgeEl = null; }
+      if (this._sessionEndingEl) { this._sessionEndingEl.remove(); this._sessionEndingEl = null; }
+      if (this._sessionEndingInterval) { clearInterval(this._sessionEndingInterval); this._sessionEndingInterval = null; }
     });
 
     this.events.on('wake', (_sys, data) => {
@@ -542,92 +554,327 @@ export default class WorldScene extends Phaser.Scene {
   // ── Multiplayer ────────────────────────────────────────────────────────────
   _connectMultiplayer() {
     console.log(`[Colyseus] Connecting to ${SERVER_URL}`);
-    const client = new Client(SERVER_URL);
+    this._colyseusClient = new Client(SERVER_URL);
+    // Phase 15 — before joining the persistent main world, check whether
+    // this signed-in player is currently invited to an active in-person
+    // session; if so, join that instead of 'world'.
     getFreshIdToken()
-      .then(idToken => client.joinOrCreate('world', { name: this.playerName, uid: this.playerUid, idToken }, WorldState))
-      .then(room => {
-        this.colyseusRoom = room;
-        console.log(`[Colyseus] Joined as "${this.playerName}" (session: ${room.sessionId})`);
-
-        room.onStateChange(state => {
-          state.players.forEach((playerState, sessionId) => {
-            if (sessionId === room.sessionId) return;
-            const inRoom   = playerState.currentRoom !== 'world';
-            const existing = this.otherPlayers.get(sessionId);
-            if (inRoom) {
-              if (existing) { existing.body.setVisible(false); existing.label.setVisible(false); }
-              return;
-            }
-            if (existing) {
-              existing.body.setVisible(true);
-              existing.label.setVisible(true);
-              // Position updates arrive at network tick rate, not every
-              // render frame — the moving/facingX flags recorded here are
-              // read every frame in update() below to drive the shared
-              // idle/walk/flip animation smoothly regardless of tick rate.
-              const dx = playerState.x - existing.body.x;
-              const dy = playerState.y - existing.body.y;
-              existing.moving  = dx !== 0 || dy !== 0;
-              existing.facingX = dx;
-              existing.body.setPosition(playerState.x, playerState.y);
-              existing.label.setPosition(playerState.x, playerState.y - 24);
-              existing.body.setDepth(5 + playerState.y / 200);
-              existing.label.setDepth(5.1 + playerState.y / 200);
-            } else {
-              // Gray placeholder shown immediately; swapped for the real
-              // character once /api/character/:uid resolves, so a newly
-              // seen player is never invisible during that brief gap.
-              const body = this.add.rectangle(playerState.x, playerState.y, 32, 32, 0x888888).setDepth(5);
-              const label = this.add.text(playerState.x, playerState.y - 24, playerState.name, {
-                fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
-              }).setOrigin(0.5).setDepth(15);
-              const entry = { body, label, moving: false, facingX: 0, animated: false };
-              this.otherPlayers.set(sessionId, entry);
-
-              fetchCharacterConfig(playerState.uid).then(config => {
-                // The player may have left, or the entry may have been
-                // replaced, by the time this resolves — don't resurrect it.
-                if (this.otherPlayers.get(sessionId) !== entry) return;
-                const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(entry.body.depth);
-                entry.body.destroy();
-                entry.body     = container;
-                entry.animated = true;
-              });
-            }
-          });
-
-          this.otherPlayers.forEach((p, sessionId) => {
-            if (!state.players.has(sessionId)) {
-              p.body.destroy(); p.label.destroy();
-              this.otherPlayers.delete(sessionId);
-            }
-          });
-
-          // Update portal occupant counts
-          const roomCounts = new Map();
-          state.players.forEach(ps => {
-            if (ps.currentRoom !== 'world')
-              roomCounts.set(ps.currentRoom, (roomCounts.get(ps.currentRoom) ?? 0) + 1);
-          });
-          this._portalCountTexts.forEach((text, key) => {
-            const n = roomCounts.get(key) ?? 0;
-            text.setText(n > 0 ? `● ${n} inside` : '');
-          });
-        });
-
-        // Server pushes this when a room is approved — refresh portals
-        room.onMessage('slotsUpdated', () => {
-          this._fetchAndDrawPortals();
-        });
-
-        // Admin approval / rejection notification
-        room.onMessage('notification', data => {
-          this._showToast(data.message, data.type);
-        });
-      })
+      .then(idToken => fetch('/api/session/mine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }).then(res => res.json()).then(data => data?.sessionId ?? null).catch(() => null))
+      .then(sessionId => sessionId ? this._joinSessionRoom(sessionId) : this._joinWorldRoom())
       .catch(err => {
         console.error('[Colyseus] Connection FAILED:', err.message);
       });
+  }
+
+  // Joins the persistent main world ('world' room type).
+  _joinWorldRoom() {
+    return getFreshIdToken()
+      .then(idToken => this._colyseusClient.joinOrCreate('world', { name: this.playerName, uid: this.playerUid, idToken }, WorldState))
+      .then(room => {
+        this._activeInPersonSessionId = null;
+        this._bindRoomHandlers(room);
+        // Live invite nudge (Phase 15) — not a forced migration. The admin
+        // starting a session pushes this to any already-connected invited
+        // player; accepting does the same room-swap a fresh reload would do.
+        room.onMessage('sessionInvite', ({ sessionId }) => {
+          this._showSessionInvitePrompt(sessionId);
+        });
+      });
+  }
+
+  // Joins an admin-started in-person session ('session' room type,
+  // filterBy'd server-side on sessionDocId so every invited player lands in
+  // the same instance). Rejected by the server's onAuth gate if the session
+  // has ended or this uid isn't on its roster.
+  _joinSessionRoom(sessionId) {
+    return getFreshIdToken()
+      .then(idToken => this._colyseusClient.joinOrCreate('session', {
+        sessionDocId: sessionId, name: this.playerName, uid: this.playerUid, idToken,
+      }, WorldState))
+      .then(room => {
+        this._activeInPersonSessionId = sessionId;
+        this._bindRoomHandlers(room);
+        // Admin clicking End Session starts a 60s grace period rather than
+        // an immediate disconnect — this is the heads-up broadcast for that.
+        // Each player decides independently whether to leave right away or
+        // wait out the timer; either way `room.onLeave` below is what
+        // actually pulls them back to the main world.
+        room.onMessage('sessionEnding', ({ endsAt }) => {
+          this._showSessionEndingCountdown(room, endsAt);
+        });
+        // The server disconnects this room once the grace period elapses (or
+        // the connection just drops) — with no reconnect logic the player
+        // would otherwise be stuck disconnected. `this.colyseusRoom !== room`
+        // guards against firing after a newer room has already taken over
+        // (e.g. this same leave happening as part of a deliberate re-join).
+        room.onLeave(() => {
+          if (this.colyseusRoom !== room) return;
+          if (this._sessionEndingEl) { this._sessionEndingEl.remove(); this._sessionEndingEl = null; }
+          if (this._sessionEndingInterval) { clearInterval(this._sessionEndingInterval); this._sessionEndingInterval = null; }
+          // Pull the player back regardless of what they're doing — mid-room,
+          // mid-mini-game, or with an overlay (feedback/help/etc.) open. Both
+          // WorldScene (asleep) and RoomScene (active or paused, if a
+          // GameScene is on top of it) keep running their JS even while not
+          // visible, so this reaches them without waiting for a manual exit.
+          this._forceOutOfAnyRoom();
+          this.otherPlayers.forEach(p => { p.body.destroy(); p.label.destroy(); });
+          this.otherPlayers.clear();
+          this._activeInPersonSessionId = null;
+          this._playPortalTransition(() => this._joinWorldRoom());
+        });
+      })
+      .catch(err => {
+        console.error('[Colyseus] Session join FAILED:', err.message);
+        this._showToast("Couldn't join the session — it may have ended.", 'rejected');
+      });
+  }
+
+  // Forces the player out of whatever they're doing back to WorldScene —
+  // a mini-game (GameScene, launched on top of a paused RoomScene), a room
+  // with an overlay open (feedback/help/object/music/etc.), or just a plain
+  // room visit. Exits via each scene's own real exit method (exitGame /
+  // forceExit) rather than a raw scene.stop(), so onGameExit/onExit hooks
+  // still run and RoomScene's overlay DOM nodes get cleaned up instead of
+  // lingering over WorldScene. No-op if the player is already in the world.
+  _forceOutOfAnyRoom() {
+    if (this.scene.isActive('GameScene')) {
+      this.scene.get('GameScene')?.exitGame?.();
+    }
+    if (this.scene.isActive('RoomScene') || this.scene.isPaused('RoomScene')) {
+      this.scene.get('RoomScene')?.forceExit?.();
+    }
+  }
+
+  // Small persistent top-left label so it's always visually obvious whether
+  // the player is in the shared main world or an isolated in-person session.
+  _updateWorldBadge() {
+    if (!this._worldBadgeEl) {
+      const el = document.createElement('div');
+      el.id = 'woc-world-badge';
+      el.style.cssText = [
+        'position:fixed;top:0.6rem;left:0.6rem;z-index:9000',
+        'padding:0.3rem 0.75rem;border-radius:6px',
+        'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:700',
+        'pointer-events:none;letter-spacing:0.02em',
+      ].join(';');
+      document.body.appendChild(el);
+      this._worldBadgeEl = el;
+    }
+    const inSession = !!this._activeInPersonSessionId;
+    this._worldBadgeEl.textContent = inSession ? 'In-Person Session' : 'Main World';
+    this._worldBadgeEl.style.background = inSession ? '#3a2a1acc' : '#16213ecc';
+    this._worldBadgeEl.style.color      = inSession ? '#f4a261' : '#8ab4f8';
+    this._worldBadgeEl.style.border     = inSession ? '1px solid #f4a261' : '1px solid #2a4a7f';
+  }
+
+  // Portal/warp effect used whenever the player's world swaps out from under
+  // them mid-play (accepting a session invite, or a session ending and
+  // falling back to the main world) — not used for the very first room join
+  // on page load, where there's nothing yet to visually transition from.
+  // Zooms the camera in while fading to a portal-tinted color, runs `swapFn`
+  // (which may be async — e.g. a Colyseus room join) once fully covered,
+  // then reverses. Movement is frozen for the duration via `_transitioning`.
+  _playPortalTransition(swapFn) {
+    const cam = this.cameras.main;
+    const startZoom = cam.zoom;
+    this._transitioning = true;
+    this.player.body.setVelocity(0);
+
+    const finish = () => {
+      cam.fadeIn(350, 20, 10, 40);
+      this.tweens.add({ targets: cam, zoom: startZoom, duration: 350, ease: 'Sine.easeOut' });
+      cam.once('camerafadeincomplete', () => { this._transitioning = false; });
+    };
+
+    cam.fadeOut(350, 20, 10, 40);
+    this.tweens.add({ targets: cam, zoom: startZoom * 1.8, duration: 350, ease: 'Sine.easeIn' });
+    cam.once('camerafadeoutcomplete', () => {
+      Promise.resolve().then(swapFn).then(finish).catch(finish);
+    });
+  }
+
+  // Shared onJoin wiring for both 'world' and 'session' connections — same
+  // player-rendering/portal-count logic either way, only the room type and
+  // invite gate differ between the two.
+  _bindRoomHandlers(room) {
+    this.colyseusRoom = room;
+    console.log(`[Colyseus] Joined as "${this.playerName}" (session: ${room.sessionId})`);
+    this._updateWorldBadge();
+
+    room.onStateChange(state => {
+      state.players.forEach((playerState, sessionId) => {
+        if (sessionId === room.sessionId) return;
+        const inRoom   = playerState.currentRoom !== 'world';
+        const existing = this.otherPlayers.get(sessionId);
+        if (inRoom) {
+          if (existing) { existing.body.setVisible(false); existing.label.setVisible(false); }
+          return;
+        }
+        if (existing) {
+          existing.body.setVisible(true);
+          existing.label.setVisible(true);
+          // Position updates arrive at network tick rate, not every
+          // render frame — the moving/facingX flags recorded here are
+          // read every frame in update() below to drive the shared
+          // idle/walk/flip animation smoothly regardless of tick rate.
+          const dx = playerState.x - existing.body.x;
+          const dy = playerState.y - existing.body.y;
+          existing.moving  = dx !== 0 || dy !== 0;
+          existing.facingX = dx;
+          existing.body.setPosition(playerState.x, playerState.y);
+          existing.label.setPosition(playerState.x, playerState.y - 24);
+          existing.body.setDepth(5 + playerState.y / 200);
+          existing.label.setDepth(5.1 + playerState.y / 200);
+        } else {
+          // Gray placeholder shown immediately; swapped for the real
+          // character once /api/character/:uid resolves, so a newly
+          // seen player is never invisible during that brief gap.
+          const body = this.add.rectangle(playerState.x, playerState.y, 32, 32, 0x888888).setDepth(5);
+          const label = this.add.text(playerState.x, playerState.y - 24, playerState.name, {
+            fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
+          }).setOrigin(0.5).setDepth(15);
+          const entry = { body, label, moving: false, facingX: 0, animated: false };
+          this.otherPlayers.set(sessionId, entry);
+
+          fetchCharacterConfig(playerState.uid).then(config => {
+            // The player may have left, or the entry may have been
+            // replaced, by the time this resolves — don't resurrect it.
+            if (this.otherPlayers.get(sessionId) !== entry) return;
+            const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(entry.body.depth);
+            entry.body.destroy();
+            entry.body     = container;
+            entry.animated = true;
+          });
+        }
+      });
+
+      this.otherPlayers.forEach((p, sessionId) => {
+        if (!state.players.has(sessionId)) {
+          p.body.destroy(); p.label.destroy();
+          this.otherPlayers.delete(sessionId);
+        }
+      });
+
+      // Update portal occupant counts
+      const roomCounts = new Map();
+      state.players.forEach(ps => {
+        if (ps.currentRoom !== 'world')
+          roomCounts.set(ps.currentRoom, (roomCounts.get(ps.currentRoom) ?? 0) + 1);
+      });
+      this._portalCountTexts.forEach((text, key) => {
+        const n = roomCounts.get(key) ?? 0;
+        text.setText(n > 0 ? `● ${n} inside` : '');
+      });
+    });
+
+    // Server pushes this when a room is approved — refresh portals
+    room.onMessage('slotsUpdated', () => {
+      this._fetchAndDrawPortals();
+    });
+
+    // Admin approval / rejection notification
+    room.onMessage('notification', data => {
+      this._showToast(data.message, data.type);
+    });
+  }
+
+  // Phase 15 — live in-app prompt for an already-connected invited player.
+  // Not a forced kick: accepting performs the same leave-and-rejoin a fresh
+  // page load would have done anyway (see _joinSessionRoom above).
+  _showSessionInvitePrompt(sessionId) {
+    if (this._sessionInviteEl) this._sessionInviteEl.remove();
+
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed;top:1rem;left:50%;transform:translateX(-50%)',
+      'z-index:9999;padding:0.75rem 1.1rem;border-radius:8px',
+      'background:#1a1a2e;border:1px solid #f4a261;color:#e0e0e0',
+      'font-family:system-ui,sans-serif;font-size:0.85rem',
+      'display:flex;align-items:center;gap:0.75rem',
+    ].join(';');
+
+    const label = document.createElement('span');
+    label.textContent = "You've been invited to an in-person session.";
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Accept';
+    btn.style.cssText = [
+      'padding:0.35rem 0.9rem;background:#f4a261;color:#1a1a2e',
+      'border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.85rem',
+    ].join(';');
+    btn.onclick = () => {
+      el.remove();
+      this._sessionInviteEl = null;
+      // The invite banner is a DOM overlay, visible (and clickable) even
+      // while the player is mid-room/mid-game in the main world — must force
+      // out of the room BEFORE starting the transition, not inside its
+      // callback: WorldScene is asleep whenever a room is open, and the
+      // portal transition's camera fade only ever advances while WorldScene
+      // is actually stepping. Starting the fade first would wait on a
+      // 'camerafadeoutcomplete' that can never fire until something else
+      // (previously: a manual room exit) wakes WorldScene back up.
+      this._forceOutOfAnyRoom();
+      this._playPortalTransition(() => {
+        this.otherPlayers.forEach(p => { p.body.destroy(); p.label.destroy(); });
+        this.otherPlayers.clear();
+        if (this.colyseusRoom) this.colyseusRoom.leave();
+        return this._joinSessionRoom(sessionId);
+      });
+    };
+
+    el.appendChild(label);
+    el.appendChild(btn);
+    document.body.appendChild(el);
+    this._sessionInviteEl = el;
+  }
+
+  // Heads-up banner shown for the 60s grace period after admin clicks End
+  // Session (see the 'sessionEnding' listener in _joinSessionRoom above).
+  // Each player decides independently whether to leave right away via the
+  // button, or let the countdown run out — `room.leave()` either way routes
+  // through the same room.onLeave handler that does the actual force-out +
+  // transition + world-rejoin, so there's nothing else to special-case here.
+  _showSessionEndingCountdown(room, endsAt) {
+    if (this._sessionEndingEl) { this._sessionEndingEl.remove(); this._sessionEndingEl = null; }
+    if (this._sessionEndingInterval) { clearInterval(this._sessionEndingInterval); this._sessionEndingInterval = null; }
+
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed;top:1rem;left:50%;transform:translateX(-50%)',
+      'z-index:9999;padding:0.75rem 1.1rem;border-radius:8px',
+      'background:#1a1a2e;border:1px solid #e9c46a;color:#e0e0e0',
+      'font-family:system-ui,sans-serif;font-size:0.85rem',
+      'display:flex;align-items:center;gap:0.75rem',
+    ].join(';');
+
+    const label = document.createElement('span');
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Return to Main World now';
+    btn.style.cssText = [
+      'padding:0.35rem 0.9rem;background:#e9c46a;color:#1a1a2e',
+      'border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.85rem',
+    ].join(';');
+    btn.onclick = () => {
+      if (this.colyseusRoom === room) room.leave();
+    };
+
+    const tick = () => {
+      const secsLeft = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      label.textContent = `Session ending in ${secsLeft}s — you'll return to the main world.`;
+      if (secsLeft <= 0) { clearInterval(this._sessionEndingInterval); this._sessionEndingInterval = null; }
+    };
+    tick();
+    this._sessionEndingInterval = setInterval(tick, 1000);
+
+    el.appendChild(label);
+    el.appendChild(btn);
+    document.body.appendChild(el);
+    this._sessionEndingEl = el;
   }
 
   // ── Update Loop ────────────────────────────────────────────────────────────
@@ -640,10 +887,12 @@ export default class WorldScene extends Phaser.Scene {
       if (p.animated) updateCharacter(p.body, { moving: p.moving, facingX: p.facingX, delta });
     });
 
-    // Freeze movement when sign is open or claim overlay is open
-    if (this._signOpen || this._claimOpen) {
+    // Freeze movement when sign is open, claim overlay is open, or a
+    // portal/warp transition (session enter/exit) is playing
+    if (this._signOpen || this._claimOpen || this._transitioning) {
       this.player.body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta }); // idle bob keeps playing even while frozen
+      if (this._transitioning) return;
       if (this._signOpen) {
         const JD = k => Phaser.Input.Keyboard.JustDown(k);
         if (JD(this._keyE) || JD(this.cursors.right)) {
@@ -722,6 +971,7 @@ export default class WorldScene extends Phaser.Scene {
             playerUid:    this.playerUid,
             playerCharacterConfig: this.playerCharacterConfig,
             colyseusRoom: this.colyseusRoom,
+            inPersonSessionId: this._activeInPersonSessionId,
             roomKey:      door.key,
             gameFileName: door.gameFileName ?? null,
             gameVersion:  door.gameVersion  ?? null,

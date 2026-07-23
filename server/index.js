@@ -76,7 +76,7 @@ const processLogsCache = new Map();
 const creationMetaCache = new Map();
 // feedbackCache: Map<feedbackId, { feedbackId, slotKey, about, source,
 //                     authorUid, authorName, text, response, respondedAt,
-//                     sessionId, createdAt }>
+//                     inPersonSessionId, createdAt }>
 // Phase 14 — one thread per room (not per creation-kind, unlike
 // creationMeta), so this is keyed by a generated id and filtered by
 // slotKey on read, same shape/role as objectsCache.
@@ -85,7 +85,30 @@ const feedbackCache = new Map();
 // unsupervised/solo play never exposes unmoderated online feedback.
 // Self-recorded feedback is never gated by this.
 let onlineFeedbackEnabled = false;
+// sessionsCache: Map<sessionId, { sessionId, hostUid, roster: [uid],
+//                     startedAt, endedAt, status: 'active'|'ended' }>
+// Phase 15 — admin-started in-person sessions, additive collection, same
+// write-through-cache role as objectsCache/feedbackCache/etc. Not to be
+// confused with a Colyseus client's `sessionId` (the connection id used
+// everywhere else in this file) — this is a Firestore doc id for a
+// facilitated group session, hence the `inPersonSessionId` naming used on
+// feedback entries above to keep the two concepts unambiguous.
+const sessionsCache = new Map();
+// sessionRoomInstances: Map<sessionId, Room> — in-memory only, never
+// persisted. The session-scoped equivalent of the singleton
+// worldRoomInstance below, needed so /admin/session/end can find and
+// disconnect the live Colyseus room for a given session.
+const sessionRoomInstances = new Map();
 let   worldRoomInstance = null; // set in WorldRoom.onCreate()
+
+// sessionEndTimers: Map<sessionId, { timeout, endsAt }> — in-memory only,
+// same tradeoff as sessionRoomInstances above (lost on server restart, in
+// which case the session just stays 'active' until admin clicks End Session
+// again). Tracks the 60s heads-up grace period between admin clicking "End
+// Session" and the session actually finalizing, so players get a countdown
+// (and a chance to leave early) instead of an abrupt disconnect.
+const sessionEndTimers = new Map();
+const SESSION_END_GRACE_MS = 60_000;
 
 // Load persisted slot assignments on startup
 if (existsSync(SLOTS_FILE)) {
@@ -151,6 +174,15 @@ try {
   console.log(`[Server] Loaded ${feedbackCache.size} feedback entr(y/ies) from Firestore`);
 } catch (e) {
   console.error('[Server] Failed to load feedback from Firestore:', e.message);
+}
+// Load persisted in-person sessions from Firestore on startup (Phase 15),
+// same pattern as objects/process logs/creation meta/feedback above.
+try {
+  const sessionsSnap = await db.collection('sessions').get();
+  sessionsSnap.forEach(doc => sessionsCache.set(doc.id, doc.data()));
+  console.log(`[Server] Loaded ${sessionsCache.size} session(s) from Firestore`);
+} catch (e) {
+  console.error('[Server] Failed to load sessions from Firestore:', e.message);
 }
 try {
   const configSnap = await db.collection('config').doc('global').get();
@@ -232,10 +264,12 @@ function notifyPlayer(sessionId, type, message) {
 
 function broadcastSlotsUpdated() {
   worldRoomInstance?.broadcast('slotsUpdated', {});
+  for (const room of sessionRoomInstances.values()) room.broadcast('slotsUpdated', {});
 }
 
 function broadcastObjectsUpdated() {
   worldRoomInstance?.broadcast('objectsUpdated', {});
+  for (const room of sessionRoomInstances.values()) room.broadcast('objectsUpdated', {});
 }
 
 // Writes through to Firestore first, then updates the read cache — so a
@@ -286,6 +320,13 @@ async function persistFeedback(entry) {
   feedbackCache.set(entry.feedbackId, entry);
 }
 
+// Writes through to Firestore first, then updates the read cache — same
+// rationale as persistObject above. Keyed by sessionId (the doc id).
+async function persistSession(entry) {
+  await db.collection('sessions').doc(entry.sessionId).set(entry);
+  sessionsCache.set(entry.sessionId, entry);
+}
+
 async function persistGlobalConfig() {
   await db.collection('config').doc('global').set({ onlineFeedbackEnabled });
 }
@@ -296,61 +337,128 @@ function clampCoord(v, max) {
 }
 
 // ── World Room ─────────────────────────────────────────────────────────────────
+// Shared by WorldRoom and SessionRoom (Phase 15) — movement/room-tracking
+// messages are identical in both; only instance-tracking and the join gate
+// differ, so those stay in each class's own onCreate/onAuth.
+function registerWorldMessages(room) {
+  room.onMessage('move', (client, data) => {
+    const player = room.state.players.get(client.sessionId);
+    if (player) { player.x = data.x; player.y = data.y; }
+  });
+
+  room.onMessage('enterRoom', (client, data) => {
+    const player = room.state.players.get(client.sessionId);
+    if (player) player.currentRoom = String(data?.key ?? 'world').slice(0, 32);
+  });
+
+  room.onMessage('roomMove', (client, data) => {
+    const player = room.state.players.get(client.sessionId);
+    if (player) { player.roomX = data.x; player.roomY = data.y; }
+  });
+
+  room.onMessage('exitRoom', (client) => {
+    const player = room.state.players.get(client.sessionId);
+    if (player) player.currentRoom = 'world';
+  });
+}
+
+// Shared by WorldRoom and SessionRoom (Phase 15) — identical join/leave
+// bookkeeping in both; only the log label differs.
+async function joinWorldPlayer(room, client, options, label) {
+  const player  = new PlayerState();
+  player.x      = 800;
+  player.y      = 600;
+  player.name   = String(options?.name ?? `Player_${client.sessionId.slice(0, 4)}`).slice(0, 20);
+
+  // Trust boundary: uid is broadcast to every client via PlayerState, so it
+  // must be backed by a server-verified idToken, never taken from options.uid directly.
+  if (options?.idToken) {
+    try {
+      const decoded = await admin.auth().verifyIdToken(options.idToken);
+      player.uid = decoded.uid;
+    } catch (e) {
+      console.warn(`[${label}] Rejected invalid idToken from ${client.sessionId}: ${e.message}`);
+    }
+  }
+
+  room.state.players.set(client.sessionId, player);
+  console.log(`[${label}] ${player.name} joined (${room.clients.length} online)`);
+}
+
+function leaveWorldPlayer(room, client, label) {
+  const player = room.state.players.get(client.sessionId);
+  if (player) console.log(`[${label}] ${player.name} left`);
+  room.state.players.delete(client.sessionId);
+}
+
 class WorldRoom extends Room {
   maxClients = 50;
 
   onCreate() {
     worldRoomInstance = this;
     this.setState(new WorldState());
-
-    this.onMessage('move', (client, data) => {
-      const player = this.state.players.get(client.sessionId);
-      if (player) { player.x = data.x; player.y = data.y; }
-    });
-
-    this.onMessage('enterRoom', (client, data) => {
-      const player = this.state.players.get(client.sessionId);
-      if (player) player.currentRoom = String(data?.key ?? 'world').slice(0, 32);
-    });
-
-    this.onMessage('roomMove', (client, data) => {
-      const player = this.state.players.get(client.sessionId);
-      if (player) { player.roomX = data.x; player.roomY = data.y; }
-    });
-
-    this.onMessage('exitRoom', (client) => {
-      const player = this.state.players.get(client.sessionId);
-      if (player) player.currentRoom = 'world';
-    });
-
+    registerWorldMessages(this);
     console.log('[WorldRoom] Created — waiting for players');
   }
 
   async onJoin(client, options) {
-    const player  = new PlayerState();
-    player.x      = 800;
-    player.y      = 600;
-    player.name   = String(options?.name ?? `Player_${client.sessionId.slice(0, 4)}`).slice(0, 20);
-
-    // Trust boundary: uid is broadcast to every client via PlayerState, so it
-    // must be backed by a server-verified idToken, never taken from options.uid directly.
-    if (options?.idToken) {
-      try {
-        const decoded = await admin.auth().verifyIdToken(options.idToken);
-        player.uid = decoded.uid;
-      } catch (e) {
-        console.warn(`[WorldRoom] Rejected invalid idToken from ${client.sessionId}: ${e.message}`);
-      }
-    }
-
-    this.state.players.set(client.sessionId, player);
-    console.log(`[WorldRoom] ${player.name} joined (${this.clients.length} online)`);
+    await joinWorldPlayer(this, client, options, 'WorldRoom');
   }
 
   onLeave(client) {
-    const player = this.state.players.get(client.sessionId);
-    if (player) console.log(`[WorldRoom] ${player.name} left`);
-    this.state.players.delete(client.sessionId);
+    leaveWorldPlayer(this, client, 'WorldRoom');
+  }
+}
+
+// ── Session Room (Phase 15) ───────────────────────────────────────────────────
+// Invite-only, temporary world instance for an admin-started in-person
+// session — one Colyseus instance per sessionDocId (see the .filterBy()
+// registration below). Deliberately NOT a subclass of WorldRoom: WorldRoom's
+// onCreate hardcodes the singleton worldRoomInstance = this, which must
+// never fire for a session instance, so the shared logic lives in the two
+// helpers above instead of via inheritance.
+class SessionRoom extends Room {
+  maxClients = 50;
+
+  onCreate(options) {
+    this.setState(new WorldState());
+    registerWorldMessages(this);
+    this.setMetadata({ sessionDocId: options.sessionDocId });
+    sessionRoomInstances.set(options.sessionDocId, this);
+    console.log(`[SessionRoom] Created for session ${options.sessionDocId}`);
+  }
+
+  // Invite-only gate — runs before onJoin, throwing rejects the connection
+  // with an error the client sees. Never trust client-supplied uid: derive
+  // it from a freshly verified idToken, same trust boundary as onJoin below.
+  async onAuth(client, options) {
+    const session = sessionsCache.get(options?.sessionDocId);
+    if (!session || session.status !== 'active')
+      throw new Error('This session is no longer active.');
+    if (!options?.idToken) throw new Error('ID token required.');
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(options.idToken);
+    } catch {
+      throw new Error('Invalid ID token.');
+    }
+    if (!session.roster.includes(decoded.uid))
+      throw new Error('You have not been invited to this session.');
+    return true;
+  }
+
+  async onJoin(client, options) {
+    await joinWorldPlayer(this, client, options, 'SessionRoom');
+  }
+
+  onLeave(client) {
+    leaveWorldPlayer(this, client, 'SessionRoom');
+  }
+
+  onDispose() {
+    for (const [sessionId, room] of sessionRoomInstances) {
+      if (room === this) sessionRoomInstances.delete(sessionId);
+    }
   }
 }
 
@@ -732,7 +840,7 @@ const gameServer = new Server({
     });
 
     app.post('/api/feedback', async (req, res) => {
-      const { idToken, slotKey, about, text, source } = req.body ?? {};
+      const { idToken, slotKey, about, text, source, inPersonSessionId } = req.body ?? {};
       if (!PORTAL_SLOTS.find(s => s.key === slotKey))
         return res.status(400).json({ error: 'Invalid slot' });
       if (!idToken) return res.status(400).json({ error: 'ID token required' });
@@ -748,6 +856,15 @@ const gameServer = new Server({
       if (!cleanText) return res.status(400).json({ error: 'Feedback text required' });
       const cleanAbout = FEEDBACK_ABOUT_VALUES.includes(about) ? about : null;
 
+      // Phase 15 — while a player is inside an active in-person session
+      // they're invited to, online feedback is implicitly live for the
+      // session's duration, bypassing the global admin toggle. Never trust
+      // the client's claim alone: the session must actually be active and
+      // list this uid in its roster.
+      const session = sessionsCache.get(inPersonSessionId);
+      const inActiveSession = !!session && session.status === 'active' && session.roster.includes(uid);
+      const entrySessionId = inActiveSession ? session.sessionId : null;
+
       const ownerUid = slotAssignments.get(slotKey)?.uid;
       let entrySource, authorUid, authorName;
       if (source === 'self-recorded') {
@@ -762,7 +879,7 @@ const gameServer = new Server({
         // check as the real gate, never the client UI alone.
         if (ownerUid && uid === ownerUid)
           return res.status(403).json({ error: 'Room owners can only add self-recorded feedback about their own room.' });
-        if (!onlineFeedbackEnabled)
+        if (!onlineFeedbackEnabled && !inActiveSession)
           return res.status(403).json({ error: 'Online feedback is currently turned off.' });
         entrySource = 'online';
         authorUid = uid;
@@ -778,7 +895,7 @@ const gameServer = new Server({
       const entry = {
         feedbackId, slotKey, about: cleanAbout, source: entrySource,
         authorUid, authorName, text: cleanText,
-        response: null, respondedAt: null, sessionId: null,
+        response: null, respondedAt: null, inPersonSessionId: entrySessionId,
         archived: false, createdAt: Date.now(),
       };
       try {
@@ -911,6 +1028,171 @@ const gameServer = new Server({
         res.json({ ok: true, onlineFeedbackEnabled });
       } catch (e) {
         res.status(500).json({ error: e.message });
+      }
+    });
+
+    // ── In-Person Sessions (Phase 15) ───────────────────────────────────────────
+    // Registered-player list for the admin roster picker — no listing
+    // endpoint existed before this, since every other users/{uid} read is a
+    // per-uid lookup (see /api/character/:uid).
+    app.get('/admin/session/roster-options', async (req, res) => {
+      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      try {
+        const usersSnap = await db.collection('users').get();
+        const users = usersSnap.docs.map(doc => ({
+          uid: doc.id,
+          displayName: doc.data()?.displayName ?? doc.id,
+          email: doc.data()?.email ?? null,
+        }));
+        res.json({ users });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    app.get('/admin/session/active', (req, res) => {
+      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      const active = [...sessionsCache.values()].find(s => s.status === 'active') ?? null;
+      const ending = active ? sessionEndTimers.get(active.sessionId) : null;
+      res.json({ session: active, endingAt: ending?.endsAt ?? null });
+    });
+
+    // Read-only, admin-authenticated feedback view scoped to one session —
+    // lets admin monitor what's about to be auto-archived on session end
+    // without cross-referencing the per-room [F] panel in-game. Moderation
+    // itself (respond/archive) stays owner-only, unchanged from Phase 14.
+    app.get('/admin/session/:sessionId/feedback', (req, res) => {
+      if (req.query.password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      const { sessionId } = req.params;
+      const list = [...feedbackCache.values()]
+        .filter(f => f.inPersonSessionId === sessionId)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      res.json({ feedback: list });
+    });
+
+    app.post('/admin/session/start', (req, res) => {
+      const { password, roster } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      if (!Array.isArray(roster) || roster.length === 0)
+        return res.status(400).json({ error: 'Pick at least one player for the roster.' });
+      if ([...sessionsCache.values()].some(s => s.status === 'active'))
+        return res.status(400).json({ error: 'A session is already active. End it before starting a new one.' });
+
+      const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const entry = {
+        sessionId, hostUid: null, roster, startedAt: Date.now(), endedAt: null, status: 'active',
+      };
+      persistSession(entry)
+        .then(() => {
+          // Nudge any already-connected invited players with a live accept
+          // prompt — they aren't force-migrated, this just tells them a
+          // session they're invited to has started. See notifyPlayer() above
+          // for the same find-client-by-uid pattern.
+          if (worldRoomInstance) {
+            for (const client of worldRoomInstance.clients) {
+              const player = worldRoomInstance.state.players.get(client.sessionId);
+              if (player?.uid && roster.includes(player.uid)) {
+                client.send('sessionInvite', { sessionId });
+              }
+            }
+          }
+          console.log(`[Admin] Started session ${sessionId} with ${roster.length} player(s)`);
+          res.json({ ok: true, sessionId });
+        })
+        .catch(e => res.status(500).json({ error: e.message }));
+    });
+
+    // Does the real work of ending a session: marks it ended in Firestore,
+    // disconnects its live Colyseus room (if still open — some or all
+    // players may have already left individually during the grace period),
+    // and auto-archives its session-tagged online feedback. Only ever
+    // called once the grace period elapses (see /admin/session/end below) —
+    // never immediately, so the countdown broadcast to players is honest.
+    async function finalizeSessionEnd(sessionId) {
+      sessionEndTimers.delete(sessionId);
+      const session = sessionsCache.get(sessionId);
+      if (!session || session.status !== 'active') return;
+
+      await persistSession({ ...session, status: 'ended', endedAt: Date.now() });
+      sessionRoomInstances.get(sessionId)?.disconnect();
+      sessionRoomInstances.delete(sessionId);
+
+      // Session-scoped online feedback doesn't carry over — auto-archive
+      // it (reversible, same flag Phase 14's manual archive button uses).
+      // Self-recorded feedback, and online feedback with no session tag,
+      // are untouched.
+      for (const entry of feedbackCache.values()) {
+        if (entry.inPersonSessionId === sessionId && entry.source === 'online' && !entry.archived) {
+          await persistFeedback({ ...entry, archived: true });
+        }
+      }
+      console.log(`[Admin] Ended session ${sessionId}`);
+    }
+
+    // Starts a 60-second grace period rather than ending the session
+    // immediately — broadcasts a countdown to the session's Colyseus room so
+    // players get a heads-up (and can leave early individually) instead of
+    // an abrupt disconnect. The session stays fully 'active' (feedback
+    // bypass, roster checks, etc. keep working normally) until
+    // finalizeSessionEnd() actually runs.
+    app.post('/admin/session/end', async (req, res) => {
+      const { password, sessionId } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      const session = sessionsCache.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+
+      // Already counting down — don't restart the clock, just report it.
+      const existing = sessionEndTimers.get(sessionId);
+      if (existing) return res.json({ ok: true, endsAt: existing.endsAt });
+
+      const endsAt = Date.now() + SESSION_END_GRACE_MS;
+      sessionRoomInstances.get(sessionId)?.broadcast('sessionEnding', { endsAt });
+      const timeout = setTimeout(() => {
+        finalizeSessionEnd(sessionId).catch(e => console.error('[Admin] finalizeSessionEnd failed:', e.message));
+      }, SESSION_END_GRACE_MS);
+      sessionEndTimers.set(sessionId, { timeout, endsAt });
+
+      console.log(`[Admin] Session ${sessionId} ending in ${SESSION_END_GRACE_MS / 1000}s`);
+      res.json({ ok: true, endsAt });
+    });
+
+    // Admin veto — skips (or preempts) the 60s grace period and finalizes
+    // immediately, whether or not /admin/session/end was ever called first.
+    // Players still get pulled back to the main world cleanly: disconnecting
+    // the Colyseus room fires their client-side room.onLeave handler, the
+    // same force-out + transition path the normal countdown uses.
+    app.post('/admin/session/end-now', async (req, res) => {
+      const { password, sessionId } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      const session = sessionsCache.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+
+      const existing = sessionEndTimers.get(sessionId);
+      if (existing) clearTimeout(existing.timeout);
+      sessionEndTimers.delete(sessionId);
+
+      try {
+        await finalizeSessionEnd(sessionId);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Public — lets a signed-in player's client discover whether it's
+    // currently invited to an active session. Never trust a client-supplied
+    // uid: derive it from a freshly verified idToken, same trust boundary as
+    // every other endpoint here that touches identity.
+    app.post('/api/session/mine', async (req, res) => {
+      const { idToken } = req.body ?? {};
+      if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      try {
+        const { uid } = await admin.auth().verifyIdToken(idToken);
+        const active = [...sessionsCache.values()]
+          .find(s => s.status === 'active' && s.roster.includes(uid));
+        res.json({ sessionId: active?.sessionId ?? null });
+      } catch {
+        res.status(401).json({ error: 'Invalid ID token' });
       }
     });
 
@@ -1161,6 +1443,7 @@ const gameServer = new Server({
 });
 
 gameServer.define('world', WorldRoom);
+gameServer.define('session', SessionRoom).filterBy(['sessionDocId']);
 
 const PORT = 2567;
 gameServer.listen(PORT).then(() => {
