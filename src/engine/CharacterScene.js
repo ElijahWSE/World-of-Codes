@@ -216,11 +216,14 @@ export default class CharacterScene extends Phaser.Scene {
       this._destroyOverlay();
       // Pass the server's sanitized config forward rather than re-fetching —
       // it's the exact same object other players will get back from
-      // /api/character/:uid, so WorldScene renders it identically either way.
-      this.scene.start('WorldScene', {
+      // /api/character/:uid, so ProfileScene/WorldScene render it
+      // identically either way. Lands on ProfileScene first (Phase 16),
+      // not straight into WorldScene.
+      const self = {
         uid: this._uid, displayName: this._displayName, photoURL: this._photoURL,
         characterConfig: data.characterConfig,
-      });
+      };
+      this.scene.start('ProfileScene', { self, targetUid: this._uid, entryMode: 'landing' });
     } catch (e) {
       status.textContent = e.message ?? 'Save failed. Please try again.';
       status.style.color = '#e07a7a';

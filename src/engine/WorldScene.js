@@ -86,6 +86,8 @@ export default class WorldScene extends Phaser.Scene {
     this._createGarden();
     this._createSignpost();
     this._createSignOutButton();
+    this._createProfileButton();
+    this._createPlayersOnlineSidebar();
     this._setupCamera();
     this._setupInput();
     this._connectMultiplayer();
@@ -100,6 +102,8 @@ export default class WorldScene extends Phaser.Scene {
     this.events.once('shutdown', () => {
       this._destroyClaimOverlay();
       this._destroySignOutButton();
+      this._destroyProfileButton();
+      this._destroyPlayersOnlineSidebar();
       if (this._unsubscribeSession) { this._unsubscribeSession(); this._unsubscribeSession = null; }
       if (this.colyseusRoom) {
         this.colyseusRoom.leave();
@@ -737,14 +741,20 @@ export default class WorldScene extends Phaser.Scene {
           const label = this.add.text(playerState.x, playerState.y - 24, playerState.name, {
             fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
           }).setOrigin(0.5).setDepth(15);
-          const entry = { body, label, moving: false, facingX: 0, animated: false };
+          const entry = { body, label, moving: false, facingX: 0, animated: false, uid: playerState.uid };
           this.otherPlayers.set(sessionId, entry);
+          // Phase 16 — click a co-present player's sprite/nametag to view
+          // their profile. Body gets re-armed below once the placeholder
+          // is swapped for the real character container, since destroy()
+          // on the old body drops its interactive state along with it.
+          [body, label].forEach(go => go.setInteractive({ useHandCursor: true }).on('pointerdown', () => this._openProfile(entry.uid)));
 
           fetchCharacterConfig(playerState.uid).then(config => {
             // The player may have left, or the entry may have been
             // replaced, by the time this resolves — don't resurrect it.
             if (this.otherPlayers.get(sessionId) !== entry) return;
             const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(entry.body.depth);
+            container.setSize(32, 44).setInteractive({ useHandCursor: true }).on('pointerdown', () => this._openProfile(entry.uid));
             entry.body.destroy();
             entry.body     = container;
             entry.animated = true;
@@ -1155,6 +1165,120 @@ export default class WorldScene extends Phaser.Scene {
 
   _destroySignOutButton() {
     if (this._signOutBtnEl) { this._signOutBtnEl.remove(); this._signOutBtnEl = null; }
+  }
+
+  // ── Profile (Phase 16) ──────────────────────────────────────────────────────
+  // Opens ProfileScene on top of a merely-paused WorldScene — never
+  // scene.start(), which would stop WorldScene and drop the live Colyseus
+  // connection. Same launch/pause technique already used for GameScene on
+  // top of a paused RoomScene (Phase 15).
+  _createProfileButton() {
+    const el = document.createElement('button');
+    el.textContent = 'My Profile';
+    el.style.cssText = [
+      'position:fixed;top:1rem;right:6.2rem;z-index:9997',
+      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
+      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
+      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+    ].join(';');
+    el.onclick = () => this._openProfile(this.playerUid);
+    document.body.appendChild(el);
+    this._profileBtnEl = el;
+  }
+
+  _destroyProfileButton() {
+    if (this._profileBtnEl) { this._profileBtnEl.remove(); this._profileBtnEl = null; }
+  }
+
+  // Shared entry point for both "My Profile" and viewing another player
+  // (sprite click / Players Online sidebar) — always launches ProfileScene
+  // as an overlay on top of a paused WorldScene, describing the viewer's
+  // own identity separately from whichever uid is being viewed (see
+  // ProfileScene.js's top-of-file comment for why those stay separate).
+  _openProfile(targetUid) {
+    if (!targetUid) return;
+    this.scene.pause('WorldScene');
+    this.scene.launch('ProfileScene', {
+      self: {
+        uid: this.playerUid, displayName: this.playerName,
+        photoURL: this.playerPhotoURL, characterConfig: this.playerCharacterConfig,
+      },
+      targetUid, entryMode: 'overlay',
+    });
+  }
+
+  // ── Players Online sidebar (Phase 16) ───────────────────────────────────────
+  // Cross-room roster — reaches players who are connected but not
+  // physically co-present (e.g. inside an active in-person session, which
+  // is deliberately isolated from the main world). Sprite/nametag clicks
+  // cover the co-present case; this covers everyone else.
+  _createPlayersOnlineSidebar() {
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = 'Players Online';
+    toggleBtn.style.cssText = [
+      'position:fixed;top:1rem;right:1rem;z-index:9997;margin-top:2.2rem',
+      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
+      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
+      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+    ].join(';');
+    document.body.appendChild(toggleBtn);
+    this._playersOnlineBtnEl = toggleBtn;
+
+    const panel = document.createElement('div');
+    panel.style.cssText = [
+      'position:fixed;top:5.4rem;right:1rem;z-index:9997;display:none',
+      'width:220px;max-height:60vh;overflow-y:auto',
+      'background:rgba(22,33,62,0.95);border:1px solid #2a4a7f;border-radius:6px;padding:0.6rem',
+      'font-family:system-ui,sans-serif;font-size:0.78rem;color:#e0e0e0',
+    ].join(';');
+    document.body.appendChild(panel);
+    this._playersOnlinePanelEl = panel;
+
+    toggleBtn.onclick = () => {
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      if (opening) this._refreshPlayersOnline();
+    };
+  }
+
+  async _refreshPlayersOnline() {
+    const panel = this._playersOnlinePanelEl;
+    if (!panel) return;
+    panel.textContent = 'Loading...';
+    try {
+      const res  = await fetch('/api/players/online');
+      const data = await res.json();
+      const players = data.players ?? [];
+      panel.innerHTML = '';
+      if (players.length === 0) {
+        panel.innerHTML = '<div style="color:#888;font-style:italic">No one else online.</div>';
+        return;
+      }
+      for (const p of players) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.4rem;padding:0.3rem 0.2rem;cursor:pointer;border-radius:4px';
+        row.onmouseenter = () => row.style.background = 'rgba(42,74,127,0.4)';
+        row.onmouseleave = () => row.style.background = 'transparent';
+        const name = document.createElement('span');
+        name.textContent = p.name || 'Player';
+        row.appendChild(name);
+        if (p.context === 'session') {
+          const badge = document.createElement('span');
+          badge.textContent = 'In-Person Session';
+          badge.style.cssText = 'background:#3a2a1a;color:#f4a261;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.65rem;font-weight:700;white-space:nowrap';
+          row.appendChild(badge);
+        }
+        row.onclick = () => this._openProfile(p.uid);
+        panel.appendChild(row);
+      }
+    } catch (e) {
+      panel.innerHTML = '<div style="color:#e07a7a">Could not load players.</div>';
+    }
+  }
+
+  _destroyPlayersOnlineSidebar() {
+    if (this._playersOnlineBtnEl)   { this._playersOnlineBtnEl.remove();   this._playersOnlineBtnEl = null; }
+    if (this._playersOnlinePanelEl) { this._playersOnlinePanelEl.remove(); this._playersOnlinePanelEl = null; }
   }
 
   // ── Signpost ───────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@
 import Phaser from 'phaser';
 import LoginScene from './LoginScene.js';
 import CharacterScene from './CharacterScene.js';
+import ProfileScene from './ProfileScene.js';
 import WorldScene from './WorldScene.js';
 import RoomScene from './RoomScene.js';
 import GameScene from './GameScene.js';
@@ -34,8 +35,11 @@ const config = {
   // LoginScene is first so every player must sign in before WorldScene is
   // reachable (Phase 9A). CharacterScene is launched programmatically by
   // LoginScene for players with no saved characterConfig yet (Phase 10).
+  // ProfileScene is the default landing page after login/character
+  // creation, and is also launched on top of a paused WorldScene for the
+  // in-world "My Profile" / viewing-another-player flows (Phase 16).
   // RoomScene is launched programmatically when a player walks through a door.
-  scene: [LoginScene, CharacterScene, WorldScene, RoomScene, GameScene]
+  scene: [LoginScene, CharacterScene, ProfileScene, WorldScene, RoomScene, GameScene]
 };
 
 // Boot the game. Phaser attaches the canvas to `config.parent`.

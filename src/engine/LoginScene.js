@@ -56,11 +56,18 @@ export default class LoginScene extends Phaser.Scene {
       if (!res.ok) throw new Error(data.error ?? 'Verification failed');
 
       this._destroyOverlay();
-      const nextScene = data.characterConfig ? 'WorldScene' : 'CharacterScene';
-      this.scene.start(nextScene, {
-        uid: data.uid, displayName: data.displayName, photoURL: data.photoURL,
-        characterConfig: data.characterConfig ?? null,
-      });
+      // Players with no saved character go through CharacterScene first —
+      // a profile needs a character to show. Everyone else (new, right
+      // after CharacterScene, or returning) lands on ProfileScene before
+      // the world (Phase 16).
+      if (!data.characterConfig) {
+        this.scene.start('CharacterScene', {
+          uid: data.uid, displayName: data.displayName, photoURL: data.photoURL,
+        });
+        return;
+      }
+      const self = { uid: data.uid, displayName: data.displayName, photoURL: data.photoURL, characterConfig: data.characterConfig };
+      this.scene.start('ProfileScene', { self, targetUid: data.uid, entryMode: 'landing' });
     } catch (e) {
       status.style.color = '#e07a7a';
       status.textContent = e.message ?? 'Sign-in failed. Please try again.';

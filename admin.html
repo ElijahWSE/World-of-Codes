@@ -145,6 +145,13 @@
   <div class="status" id="session-status"></div>
 </section>
 
+<!-- Player Profiles (Phase 16) -->
+<section>
+  <h2>Player Profiles</h2>
+  <p class="note" style="margin-top:0;margin-bottom:1rem">Profiles are visible to all players by default. Hide one only in the rare case it's needed — this never affects that player's own view of their own profile.</p>
+  <div id="profiles-list"><p class="empty-state">Loading...</p></div>
+</section>
+
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
@@ -651,6 +658,53 @@ async function saveFeedbackToggle() {
   }
 }
 
+// ── Player Profiles (Phase 16) ──────────────────────────────────────────────────
+// Reuses /admin/session/roster-options (Phase 15) for the user list rather
+// than adding a second listing endpoint.
+async function loadProfilesList() {
+  const el = document.getElementById('profiles-list');
+  try {
+    const res  = await fetch(`/admin/session/roster-options?password=${encodeURIComponent(getPassword())}`);
+    const data = await res.json();
+    if (!res.ok) { el.innerHTML = `<p class="empty-state">${data.error ?? 'Failed to load'}</p>`; return; }
+    if (!data.users?.length) { el.innerHTML = '<p class="empty-state">No registered players yet.</p>'; return; }
+    el.innerHTML = '';
+    for (const u of data.users) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;cursor:pointer';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = u.profileVisible;
+      checkbox.onchange = () => saveProfileVisibility(u.uid, checkbox);
+      row.appendChild(checkbox);
+      const label = document.createElement('span');
+      label.textContent = `${u.displayName}${u.email ? ' (' + u.email + ')' : ''}`;
+      row.appendChild(label);
+      el.appendChild(row);
+    }
+  } catch (e) {
+    el.innerHTML = `<p class="empty-state">Network error: ${e.message}</p>`;
+  }
+}
+
+async function saveProfileVisibility(uid, checkbox) {
+  const visible = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    const res = await fetch('/admin/profile-visibility', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: getPassword(), uid, visible }),
+    });
+    const data = await res.json();
+    if (!res.ok) checkbox.checked = !visible;
+  } catch (e) {
+    checkbox.checked = !visible;
+  } finally {
+    checkbox.disabled = false;
+  }
+}
+
 // ── In-Person Sessions (Phase 15) ──────────────────────────────────────────────
 let _sessionEndingInterval = null;
 
@@ -884,6 +938,7 @@ if (sessionStorage.getItem('woc_admin_pw')) {
 loadSlots();
 loadFeedbackToggle();
 loadSessionStatus();
+loadProfilesList();
 </script>
 </body>
 </html>

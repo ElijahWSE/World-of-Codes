@@ -1031,6 +1031,97 @@ const gameServer = new Server({
       }
     });
 
+    // ── Profile Page (Phase 16) ───────────────────────────────────────────────────
+    // Pure aggregation over data Phases 11–14 already produce — no new
+    // Firestore collection, just one new field (users/{uid}.profileVisible).
+    // Public, no idToken required, same read-endpoint convention as
+    // /api/process-log and /api/feedback. `viewerUid` is a presentational
+    // hint, not a security boundary — everything aggregated here (rooms,
+    // objects, process logs, feedback) is already publicly readable
+    // elsewhere by slotKey, so profileVisible only ever hides the
+    // convenience of one combined view, never the underlying data.
+    app.get('/api/profile/:uid', async (req, res) => {
+      const { uid } = req.params;
+      const viewerUid = req.query.viewerUid || null;
+      try {
+        const userSnap = await db.collection('users').doc(uid).get();
+        if (!userSnap.exists) return res.status(404).json({ error: 'Player not found' });
+        const userData = userSnap.data() ?? {};
+        const displayName = userData.displayName ?? 'Player';
+        const profileVisible = userData.profileVisible !== false; // default true
+
+        if (!profileVisible && viewerUid !== uid) {
+          return res.json({ hidden: true, uid, displayName });
+        }
+
+        const rooms = [...slotAssignments.entries()]
+          .filter(([, a]) => a.uid === uid)
+          .map(([slotKey, a]) => ({
+            slotKey, roomName: a.roomName, fileName: a.fileName,
+            gameFileName: a.gameFileName ?? null, musicFileName: a.musicFileName ?? null,
+          }));
+        const roomSlotKeys = new Set(rooms.map(r => r.slotKey));
+
+        const objects = [...objectsCache.values()]
+          .filter(o => o.ownerUid === uid && o.subKind === 'interactive')
+          .map(o => ({ id: o.id, roomSlotKey: o.roomSlotKey, fileName: o.fileName, createdAt: o.createdAt }));
+
+        const processLogs = rooms
+          .map(r => processLogsCache.get(r.slotKey))
+          .filter(Boolean);
+
+        const feedback = [...feedbackCache.values()]
+          .filter(f => roomSlotKeys.has(f.slotKey))
+          .sort((a, b) => b.createdAt - a.createdAt);
+
+        res.json({
+          hidden: false, uid, displayName,
+          photoURL: userData.photoURL ?? null,
+          characterConfig: userData.characterConfig ?? null,
+          rooms, objects, processLogs, feedback,
+        });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Cross-room online roster — powers WorldScene's "Players Online"
+    // sidebar. WorldRoom and SessionRoom are deliberately isolated from
+    // each other (Phase 15 — a session only isolates players, but nothing
+    // aggregates presence across both), so this reads both singletons
+    // directly rather than standing up a new presence store. Presence
+    // only, no sensitive data, so no auth needed.
+    app.get('/api/players/online', (_req, res) => {
+      const players = [];
+      if (worldRoomInstance) {
+        worldRoomInstance.state.players.forEach(p => {
+          if (p.uid) players.push({ uid: p.uid, name: p.name, context: 'main' });
+        });
+      }
+      for (const room of sessionRoomInstances.values()) {
+        room.state.players.forEach(p => {
+          if (p.uid) players.push({ uid: p.uid, name: p.name, context: 'session' });
+        });
+      }
+      res.json({ players });
+    });
+
+    // Admin-only, per-user — the rare case of hiding one profile from
+    // other players. Not player-controlled by design (see PROJECT_BRIEF.md
+    // Phase 16). Reuses /admin/session/roster-options below for the
+    // listing this toggle attaches to, rather than a new endpoint.
+    app.post('/admin/profile-visibility', async (req, res) => {
+      const { password, uid, visible } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
+      if (!uid?.trim()) return res.status(400).json({ error: 'uid required' });
+      try {
+        await db.collection('users').doc(uid).set({ profileVisible: !!visible }, { merge: true });
+        res.json({ ok: true, uid, profileVisible: !!visible });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
     // ── In-Person Sessions (Phase 15) ───────────────────────────────────────────
     // Registered-player list for the admin roster picker — no listing
     // endpoint existed before this, since every other users/{uid} read is a
@@ -1043,6 +1134,10 @@ const gameServer = new Server({
           uid: doc.id,
           displayName: doc.data()?.displayName ?? doc.id,
           email: doc.data()?.email ?? null,
+          // Phase 16 — also reused by admin.html's Profiles section, which
+          // needs each user's current profileVisible state to render its
+          // toggle correctly (default true when the field is absent).
+          profileVisible: doc.data()?.profileVisible !== false,
         }));
         res.json({ users });
       } catch (e) {
