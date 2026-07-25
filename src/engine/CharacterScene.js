@@ -78,11 +78,11 @@ export default class CharacterScene extends Phaser.Scene {
   }
 
   create() {
-    this.cameras.main.setBackgroundColor('#1a1a2e');
+    this.cameras.main.setBackgroundColor('#FFF6E4');
 
     // Simple pedestal glow behind the preview — same "colored shapes only"
     // visual language as the rest of the engine, no art asset needed.
-    this.add.circle(PREVIEW_X, PREVIEW_Y + 30, 60, 0x2a4a7f, 0.35);
+    this.add.circle(PREVIEW_X, PREVIEW_Y + 30, 60, 0xF0E4C8, 0.35);
     this.add.text(PREVIEW_X, PREVIEW_Y - 90, 'LIVE PREVIEW', {
       fontSize: '13px', fill: '#88ccff', fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -116,30 +116,30 @@ export default class CharacterScene extends Phaser.Scene {
       'font-family:system-ui,sans-serif',
     ].join(';');
     el.innerHTML = `
-      <div style="width:440px;max-width:60vw;background:#16213e;border-right:1px solid #2a4a7f;padding:1.75rem;overflow-y:auto;box-sizing:border-box">
-        <h1 style="color:#f4a261;margin:0 0 0.35rem;font-size:1.2rem">Design Your Character</h1>
-        <p style="color:#888;font-size:0.8rem;margin-bottom:1.25rem">Welcome, ${escHtml(this._displayName)}! Before you enter the town square, design how you'll look to everyone else.</p>
+      <div style="width:440px;max-width:60vw;background:#FFFFFF;border-right:1px solid #F0E4C8;padding:1.75rem;overflow-y:auto;box-sizing:border-box;font-family:'Nunito',system-ui,sans-serif">
+        <h1 style="color:#FF7A59;margin:0 0 0.35rem;font-size:1.2rem">Design Your Character</h1>
+        <p style="color:#6E7191;font-size:0.8rem;margin-bottom:1.25rem">Welcome, ${escHtml(this._displayName)}! Before you enter the town square, design how you'll look to everyone else.</p>
 
-        <ol style="color:#ccc;font-size:0.78rem;line-height:1.6;padding-left:1.1rem;margin-bottom:1rem">
-          <li>Copy the prompt below into <strong style="color:#88ccff">gemini.google.com</strong></li>
+        <ol style="color:#6E7191;font-size:0.78rem;line-height:1.6;padding-left:1.1rem;margin-bottom:1rem">
+          <li>Copy the prompt below into <strong style="color:#2EC4B6">gemini.google.com</strong></li>
           <li>Describe the character you want in your own words</li>
           <li>Paste Gemini's final JSON into the box below</li>
           <li>Check the live preview on the right, then Save</li>
         </ol>
 
-        <button id="woc-char-copy" style="width:100%;padding:0.5rem;margin-bottom:1rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">📋 Copy Character Prompt</button>
+        <button id="woc-char-copy" style="width:100%;padding:0.5rem;margin-bottom:1rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">📋 Copy Character Prompt</button>
 
         <label style="display:block;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Character JSON (paste from Gemini)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Character JSON (paste from Gemini)</span>
           <textarea id="woc-char-json" placeholder='{ "shapes": [...], "scale": 1.0 }'
-            style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.76rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.76rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
 
         <div id="woc-char-status" style="margin-bottom:0.75rem;font-size:0.8rem;min-height:1.2rem;white-space:pre-wrap"></div>
 
         <div style="display:flex;gap:0.75rem">
-          <button id="woc-char-preview" style="flex:1;padding:0.55rem;background:#2a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Update Preview</button>
-          <button id="woc-char-save" style="flex:1;padding:0.55rem;background:#f4a261;color:#1a1a2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Save &amp; Enter World</button>
+          <button id="woc-char-preview" style="flex:1;padding:0.55rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Update Preview</button>
+          <button id="woc-char-save" style="flex:1;padding:0.55rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Save &amp; Enter World</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -172,7 +172,7 @@ export default class CharacterScene extends Phaser.Scene {
       parsed = JSON.parse(raw);
     } catch (e) {
       status.textContent = 'Not valid JSON yet — check for a missing comma or bracket.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
     status.textContent = '';
@@ -196,13 +196,13 @@ export default class CharacterScene extends Phaser.Scene {
       parsed = JSON.parse(raw);
     } catch (e) {
       status.textContent = 'Fix the JSON before saving.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
 
     btn.disabled = true;
     status.textContent = 'Saving...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const idToken = await getFreshIdToken();
@@ -227,7 +227,7 @@ export default class CharacterScene extends Phaser.Scene {
       this.scene.start('ProfileScene', { self, targetUid: this._uid, entryMode: 'landing' });
     } catch (e) {
       status.textContent = e.message ?? 'Save failed. Please try again.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }

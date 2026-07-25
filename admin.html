@@ -3,85 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>World of Codes — Admin</title>
+  <title>ImpactGround — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; max-width: 1000px; margin: 0 auto; }
-    h1 { color: #f4a261; margin-bottom: 0.25rem; }
-    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
-    h2 { color: #f4a261; margin-bottom: 1rem; font-size: 1rem; letter-spacing: 0.05em; text-transform: uppercase; }
-    h3 { font-size: 0.9rem; margin-bottom: 0.75rem; color: #ccc; }
-    section { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
-    label { display: block; margin-bottom: 1rem; font-size: 0.875rem; color: #aaa; }
+    body { font-family: 'Nunito', system-ui, sans-serif; background: #FFF6E4; color: #2D3047; padding: 2rem; max-width: 1000px; margin: 0 auto; }
+    h1 { font-family: 'Fredoka', system-ui, sans-serif; color: #FF7A59; margin-bottom: 0.25rem; }
+    .subtitle { color: #6E7191; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    h2 { font-family: 'Fredoka', system-ui, sans-serif; color: #FF7A59; margin-bottom: 1rem; font-size: 1rem; letter-spacing: 0.05em; text-transform: uppercase; }
+    h3 { font-family: 'Fredoka', system-ui, sans-serif; font-size: 0.9rem; margin-bottom: 0.75rem; color: #6E7191; }
+    section { background: #FFFFFF; border: 1px solid #F0E4C8; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    label { display: block; margin-bottom: 1rem; font-size: 0.875rem; color: #6E7191; }
     label span { display: block; margin-bottom: 0.35rem; }
     input[type=text], input[type=password], select, textarea {
       display: block; width: 100%; padding: 0.5rem 0.75rem;
-      background: #0f3460; border: 1px solid #2a4a7f; border-radius: 4px;
-      color: #e0e0e0; font-size: 0.9rem; font-family: inherit;
+      background: #FFF6E4; border: 1px solid #F0E4C8; border-radius: 4px;
+      color: #2D3047; font-size: 0.9rem; font-family: inherit;
     }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: #f4a261; }
-    textarea { font-family: 'Courier New', monospace; font-size: 0.8rem; resize: vertical; min-height: 260px; }
-    .btn { display: inline-block; padding: 0.5rem 1.25rem; background: #f4a261; color: #1a1a2e; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 0.875rem; }
-    .btn:hover { background: #e8935a; }
-    .btn-secondary { background: #2a4a7f; color: #e0e0e0; }
-    .btn-secondary:hover { background: #3a5a9f; }
-    .btn-danger { background: #e63946; color: #fff; }
-    .btn-danger:hover { background: #c1121f; }
-    .btn-success { background: #2d6a4f; color: #fff; }
-    .btn-success:hover { background: #3a8a6a; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #FF7A59; }
+    textarea { font-family: 'Space Mono', monospace; font-size: 0.8rem; resize: vertical; min-height: 260px; }
+    .btn { display: inline-block; padding: 0.5rem 1.25rem; background: #FF7A59; color: #ffffff; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 0.875rem; }
+    .btn:hover { background: #E86A4D; }
+    .btn-secondary { background: #F0E4C8; color: #2D3047; }
+    .btn-secondary:hover { background: #E3D3AC; }
+    .btn-danger { background: #B5401F; color: #fff; }
+    .btn-danger:hover { background: #8C2F14; }
+    .btn-success { background: #2EC4B6; color: #fff; }
+    .btn-success:hover { background: #26A99C; }
     .btn-small { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
     .btn-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
     .row { display: flex; gap: 1rem; }
     .row label { flex: 1; }
     .slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
-    .slot-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 0.75rem; }
-    .slot-card.active { border-color: #f4a261; }
-    .slot-card h3 { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
-    .slot-card .room-name { font-size: 0.9rem; margin-bottom: 0.2rem; color: #e0e0e0; }
-    .slot-card .room-file { font-size: 0.7rem; color: #666; margin-bottom: 0.6rem; font-family: monospace; }
-    .slot-card .empty { color: #444; font-style: italic; font-size: 0.85rem; }
+    .slot-card { background: #FFF6E4; border: 1px solid #F0E4C8; border-radius: 6px; padding: 0.75rem; }
+    .slot-card.active { border-color: #FF7A59; }
+    .slot-card h3 { font-size: 0.75rem; color: #6E7191; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
+    .slot-card .room-name { font-size: 0.9rem; margin-bottom: 0.2rem; color: #2D3047; }
+    .slot-card .room-file { font-size: 0.7rem; color: #6E7191; margin-bottom: 0.6rem; font-family: 'Space Mono', monospace; }
+    .slot-card .empty { color: #6E7191; font-style: italic; font-size: 0.85rem; }
     .status { margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.875rem; display: none; }
-    .status.ok  { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; display: block; }
-    .status.err { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; display: block; }
+    .status.ok  { background: #DCF7F1; border: 1px solid #0f7a6c; color: #0f7a6c; display: block; }
+    .status.err { background: #FFE3D8; border: 1px solid #B5401F; color: #B5401F; display: block; }
     .password-row { display: flex; align-items: flex-end; gap: 1rem; }
     .password-row label { flex: 1; margin-bottom: 0; }
-    #password-saved { color: #52b788; font-size: 0.85rem; }
-    .note { font-size: 0.8rem; color: #666; margin-top: 0.75rem; }
+    #password-saved { color: #2EC4B6; font-size: 0.85rem; }
+    .note { font-size: 0.8rem; color: #6E7191; margin-top: 0.75rem; }
 
     /* Tabs */
-    .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid #0f3460; }
-    .tab-btn { padding: 0.6rem 1.25rem; background: transparent; border: none; color: #888; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s; }
-    .tab-btn:hover { color: #ccc; }
-    .tab-btn.active { color: #f4a261; border-bottom-color: #f4a261; }
+    .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid #F0E4C8; }
+    .tab-btn { font-family: 'Nunito', system-ui, sans-serif; padding: 0.6rem 1.25rem; background: transparent; border: none; color: #6E7191; cursor: pointer; font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s; }
+    .tab-btn:hover { color: #2D3047; }
+    .tab-btn.active { color: #FF7A59; border-bottom-color: #FF7A59; }
     .tab-pane { display: none; }
     .tab-pane.active { display: block; }
 
     /* Pending cards */
-    .pending-card { background: #0f3460; border: 1px solid #2a4a7f; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-    .pending-card .meta { font-size: 0.78rem; color: #888; margin-bottom: 0.5rem; }
-    .pending-card .preview { font-family: monospace; font-size: 0.75rem; color: #aaa; background: #070e1f; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 100px; overflow: hidden; }
-    .pending-card .full-code { font-family: monospace; font-size: 0.75rem; color: #ccc; background: #070e1f; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 300px; overflow-y: auto; display: none; }
+    .pending-card { background: #FFF6E4; border: 1px solid #F0E4C8; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    .pending-card .meta { font-size: 0.78rem; color: #6E7191; margin-bottom: 0.5rem; }
+    .pending-card .preview { font-family: 'Space Mono', monospace; font-size: 0.75rem; color: #6E7191; background: #FFFFFF; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 100px; overflow: hidden; }
+    .pending-card .full-code { font-family: 'Space Mono', monospace; font-size: 0.75rem; color: #2D3047; background: #FFFFFF; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; white-space: pre-wrap; max-height: 300px; overflow-y: auto; display: none; }
     .reject-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; }
     .reject-input { flex: 1; min-width: 180px; padding: 0.35rem 0.6rem; }
     .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.72rem; font-weight: 700; margin-left: 0.5rem; }
-    .badge-slot { background: #1a3060; color: #8ab4f8; }
-    .empty-state { color: #555; font-style: italic; font-size: 0.9rem; padding: 1rem 0; }
+    .badge-slot { background: #DCF7F1; color: #0f7a6c; }
+    .empty-state { color: #6E7191; font-style: italic; font-size: 0.9rem; padding: 1rem 0; }
 
     /* Validation */
     #validation-box { margin-top: 1.25rem; display: none; }
     .check-list { list-style: none; margin-bottom: 1rem; }
     .check-list li { font-size: 0.875rem; padding: 0.35rem 0; display: flex; align-items: flex-start; gap: 0.5rem; }
     .check-list li .icon { flex-shrink: 0; font-size: 1rem; }
-    .check-list li.pass { color: #52b788; }
-    .check-list li.fail { color: #e07a7a; }
+    .check-list li.pass { color: #0f7a6c; }
+    .check-list li.fail { color: #B5401F; }
     .validation-banner { padding: 0.6rem 1rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; margin-bottom: 1rem; }
-    .validation-banner.all-pass { background: #1d3a2e; border: 1px solid #2d6a4f; color: #52b788; }
-    .validation-banner.has-fail { background: #3a1d1d; border: 1px solid #6a2d2d; color: #e07a7a; }
-    #gemini-prompt-box { margin-top: 1.25rem; background: #0f2040; border: 1px solid #f4a26155; border-radius: 6px; padding: 1.25rem; display: none; }
-    #gemini-prompt-box h3 { color: #f4a261; margin-bottom: 0.4rem; }
-    #gemini-prompt-box p { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
-    #gemini-prompt { min-height: 140px; font-size: 0.78rem; background: #070e1f; border-color: #1a3060; color: #ccc; margin-bottom: 0.75rem; }
-    #copy-feedback { font-size: 0.8rem; color: #52b788; margin-left: 0.75rem; display: none; }
+    .validation-banner.all-pass { background: #DCF7F1; border: 1px solid #0f7a6c; color: #0f7a6c; }
+    .validation-banner.has-fail { background: #FFE3D8; border: 1px solid #B5401F; color: #B5401F; }
+    #gemini-prompt-box { margin-top: 1.25rem; background: #FFFFFF; border: 1px solid #FF7A5955; border-radius: 6px; padding: 1.25rem; display: none; }
+    #gemini-prompt-box h3 { color: #FF7A59; margin-bottom: 0.4rem; }
+    #gemini-prompt-box p { font-size: 0.8rem; color: #6E7191; margin-bottom: 0.75rem; }
+    #gemini-prompt { min-height: 140px; font-size: 0.78rem; background: #FFF6E4; border-color: #F0E4C8; color: #2D3047; margin-bottom: 0.75rem; }
+    #copy-feedback { font-size: 0.8rem; color: #2EC4B6; margin-left: 0.75rem; display: none; }
 
     /* Inline validation inside pending cards */
     .inline-validation { margin-top: 0.75rem; display: none; }
@@ -92,7 +95,7 @@
 </head>
 <body>
 
-<h1>World of Codes</h1>
+<h1>ImpactGround</h1>
 <p class="subtitle">Admin Panel — room management</p>
 
 <!-- Password -->
@@ -127,7 +130,7 @@
   <div id="session-active-box" style="display:none">
     <p style="margin-bottom:0.35rem"><strong>Active session</strong> — started <span id="session-started-at"></span></p>
     <p class="note" style="margin-top:0;margin-bottom:0.75rem">Roster: <span id="session-roster-names"></span></p>
-    <p class="note" id="session-ending-note" style="display:none;margin-top:0;margin-bottom:0.75rem;color:#e9c46a"></p>
+    <p class="note" id="session-ending-note" style="display:none;margin-top:0;margin-bottom:0.75rem;color:#8a6d1f"></p>
     <div class="btn-row" style="margin-bottom:0">
       <button class="btn btn-danger btn-small" id="end-session-btn" onclick="endSession()">End Session</button>
       <button class="btn btn-danger btn-small" onclick="endSessionNow()">Force End Now</button>
@@ -155,7 +158,7 @@
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('rooms')">Room Management</button>
-  <button class="tab-btn" onclick="switchTab('pending')">Pending <span id="pending-badge" class="badge" style="display:none;background:#c1121f;color:#fff"></span></button>
+  <button class="tab-btn" onclick="switchTab('pending')">Pending <span id="pending-badge" class="badge" style="display:none;background:#B5401F;color:#fff"></span></button>
   <button class="tab-btn" onclick="switchTab('session')">Session</button>
 </div>
 
@@ -166,7 +169,7 @@
   <section>
     <h2>All 20 Portal Slots</h2>
     <div class="slot-grid" id="slot-grid">
-      <p style="color:#888;font-size:0.9rem">Loading...</p>
+      <p style="color:#6E7191;font-size:0.9rem">Loading...</p>
     </div>
     <button class="btn btn-secondary btn-small" style="margin-top:1rem" onclick="loadSlots()">Refresh</button>
   </section>
@@ -174,7 +177,7 @@
   <!-- Direct Assign (admin bypass) -->
   <section>
     <h2>Assign Room Directly</h2>
-    <p class="note" style="margin-bottom:1rem;color:#aaa">Use this to add a room yourself without going through the in-game submission flow.</p>
+    <p class="note" style="margin-bottom:1rem;color:#6E7191">Use this to add a room yourself without going through the in-game submission flow.</p>
     <div class="row">
       <label>
         <span>Room / Portal Name</span>
@@ -217,11 +220,11 @@
 <div id="tab-pending" class="tab-pane">
   <section>
     <h2>Pending Submissions</h2>
-    <p class="note" style="margin-bottom:1rem;color:#aaa">Submitted by players in-game (rooms and mini-games share one queue). Review the code, then approve or reject.</p>
+    <p class="note" style="margin-bottom:1rem;color:#6E7191">Submitted by players in-game (rooms and mini-games share one queue). Review the code, then approve or reject.</p>
 
     <!-- Submit a game for a slot (admin bypass) -->
     <details style="margin-bottom:1.5rem">
-      <summary style="cursor:pointer;color:#f4a261;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem">+ Submit a new game for a slot</summary>
+      <summary style="cursor:pointer;color:#FF7A59;font-size:0.9rem;font-weight:600;margin-bottom:0.75rem">+ Submit a new game for a slot</summary>
       <div style="margin-top:0.75rem">
         <div class="row">
           <label>
@@ -343,7 +346,7 @@ async function loadSlots() {
         </div>`;
     }).join('');
   } catch (e) {
-    grid.innerHTML = `<p style="color:#e07a7a">Failed to load: ${e.message}</p>`;
+    grid.innerHTML = `<p style="color:#B5401F">Failed to load: ${e.message}</p>`;
   }
 }
 
@@ -390,9 +393,9 @@ async function validatePendingCode(id, kind, scope = 'main') {
   const box     = document.getElementById(`${scope}-val-${id}`);
   const fullEl  = document.getElementById(`${scope}-full-${id}`);
 
-  if (!pw) { box.innerHTML = '<p style="color:#e07a7a;font-size:0.82rem">Enter and save your password first.</p>'; box.style.display = 'block'; return; }
+  if (!pw) { box.innerHTML = '<p style="color:#B5401F;font-size:0.82rem">Enter and save your password first.</p>'; box.style.display = 'block'; return; }
 
-  box.innerHTML = '<p style="color:#888;font-size:0.82rem">Validating…</p>';
+  box.innerHTML = '<p style="color:#6E7191;font-size:0.82rem">Validating…</p>';
   box.style.display = 'block';
 
   let code = fullEl.textContent;
@@ -403,7 +406,7 @@ async function validatePendingCode(id, kind, scope = 'main') {
       code = data.code ?? '';
       fullEl.textContent = code;
     } catch (e) {
-      box.innerHTML = `<p style="color:#e07a7a;font-size:0.82rem">Failed to load code: ${e.message}</p>`;
+      box.innerHTML = `<p style="color:#B5401F;font-size:0.82rem">Failed to load code: ${e.message}</p>`;
       return;
     }
   }
@@ -504,15 +507,15 @@ function renderPendingCard(s, scope = 'main') {
   return `
       <div class="pending-card" id="${scope}-psub-${s.id}">
         <div class="meta">
-          <strong style="color:#e0e0e0">${escHtml(s.displayName)}</strong>
-          <span class="badge" style="background:${s.kind === 'room' ? '#2a4a7f' : '#1a3a6a'};color:#aaccff">${s.kind.toUpperCase()}</span>
+          <strong style="color:#2D3047">${escHtml(s.displayName)}</strong>
+          <span class="badge" style="background:${s.kind === 'room' ? '#DCF7F1' : '#F3E8FA'};color:${s.kind === 'room' ? '#0f7a6c' : '#7C4DA8'}">${s.kind.toUpperCase()}</span>
           <span class="badge badge-slot">${s.slotKey}</span>
-          ${s.isUpdate ? '<span class="badge" style="background:#1d5c8a;color:#aaddff">UPDATE</span>' : ''}
+          ${s.isUpdate ? '<span class="badge" style="background:#FFD84D;color:#2D3047">UPDATE</span>' : ''}
           — ${new Date(s.submittedAt).toLocaleString()}
         </div>
-        ${s.meta?.versionDescription ? `<div class="note" style="color:#aaa;font-size:0.8rem;margin-bottom:0.5rem">"${escHtml(s.meta.versionDescription)}"</div>` : ''}
-        ${s.meta?.remixedFrom ? `<div class="note" style="color:#a7c957;font-size:0.78rem;margin-bottom:0.5rem">Remixed from: ${escHtml(s.meta.remixedFrom)}</div>` : ''}
-        ${s.meta?.dropVersionId ? `<div class="note" style="color:#e9c46a;font-size:0.78rem;margin-bottom:0.5rem">Will replace version: ${escHtml(s.meta.dropVersionId)}</div>` : ''}
+        ${s.meta?.versionDescription ? `<div class="note" style="color:#6E7191;font-size:0.8rem;margin-bottom:0.5rem">"${escHtml(s.meta.versionDescription)}"</div>` : ''}
+        ${s.meta?.remixedFrom ? `<div class="note" style="color:#2EC4B6;font-size:0.78rem;margin-bottom:0.5rem">Remixed from: ${escHtml(s.meta.remixedFrom)}</div>` : ''}
+        ${s.meta?.dropVersionId ? `<div class="note" style="color:#8a6d1f;font-size:0.78rem;margin-bottom:0.5rem">Will replace version: ${escHtml(s.meta.dropVersionId)}</div>` : ''}
         <div class="preview" id="${scope}-preview-${s.id}">${escHtml(s.codePreview)}…</div>
         <div class="full-code" id="${scope}-full-${s.id}"></div>
         <div class="btn-row">
@@ -537,14 +540,14 @@ async function loadPending() {
     const qs   = new URLSearchParams({ password: pw, ...(kind ? { kind } : {}) });
     const res  = await fetch(`/admin/pending?${qs}`);
     const data = await res.json();
-    if (!res.ok) { list.innerHTML = `<p style="color:#e07a7a">${data.error}</p>`; return; }
+    if (!res.ok) { list.innerHTML = `<p style="color:#B5401F">${data.error}</p>`; return; }
     const badge = document.getElementById('pending-badge');
     if (data.length > 0) { badge.textContent = data.length; badge.style.display = 'inline'; }
     else badge.style.display = 'none';
     if (data.length === 0) { list.innerHTML = '<p class="empty-state">No pending submissions.</p>'; return; }
     list.innerHTML = data.map(s => renderPendingCard(s, 'main')).join('');
   } catch (e) {
-    list.innerHTML = `<p style="color:#e07a7a">Failed: ${e.message}</p>`;
+    list.innerHTML = `<p style="color:#B5401F">Failed: ${e.message}</p>`;
   }
 }
 
@@ -773,15 +776,15 @@ async function loadRosterPicker() {
   try {
     const res = await fetch(`/admin/session/roster-options?password=${encodeURIComponent(getPassword())}`);
     const data = await res.json();
-    if (!res.ok) { box.innerHTML = `<p style="color:#e07a7a">${escHtml(data.error)}</p>`; return; }
+    if (!res.ok) { box.innerHTML = `<p style="color:#B5401F">${escHtml(data.error)}</p>`; return; }
     if (!data.users?.length) { box.innerHTML = '<p class="empty-state">No registered players yet.</p>'; return; }
     box.innerHTML = data.users.map(u => `
       <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0;font-size:0.85rem;cursor:pointer">
         <input type="checkbox" class="session-roster-checkbox" value="${escAttr(u.uid)}">
-        <span>${escHtml(u.displayName)}${u.email ? ' <span style="color:#666">(' + escHtml(u.email) + ')</span>' : ''}</span>
+        <span>${escHtml(u.displayName)}${u.email ? ' <span style="color:#6E7191">(' + escHtml(u.email) + ')</span>' : ''}</span>
       </label>`).join('');
   } catch (e) {
-    box.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+    box.innerHTML = `<p style="color:#B5401F">Failed to load: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -892,7 +895,7 @@ async function loadSessionTab() {
       ? mine.map(s => renderPendingCard(s, 'session')).join('')
       : '<p class="empty-state">No pending submissions from this session\'s roster.</p>';
   } catch (e) {
-    pendingBox.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+    pendingBox.innerHTML = `<p style="color:#B5401F">Failed to load: ${escHtml(e.message)}</p>`;
   }
 
   // Read-only feedback view — shows what's tagged to this session and will
@@ -906,18 +909,18 @@ async function loadSessionTab() {
       ? list.map(f => `
         <div class="pending-card">
           <div class="meta">
-            <strong style="color:#e0e0e0">${escHtml(f.authorName ?? 'A player')}</strong>
+            <strong style="color:#2D3047">${escHtml(f.authorName ?? 'A player')}</strong>
             <span class="badge badge-slot">${escHtml(f.slotKey)}</span>
-            ${f.about ? `<span class="badge" style="background:#1a3a6a;color:#aaccff">${escHtml(f.about)}</span>` : ''}
-            ${f.archived ? '<span class="badge" style="background:#444;color:#aaa">ARCHIVED</span>' : ''}
+            ${f.about ? `<span class="badge" style="background:#F3E8FA;color:#7C4DA8">${escHtml(f.about)}</span>` : ''}
+            ${f.archived ? '<span class="badge" style="background:#F0E4C8;color:#6E7191">ARCHIVED</span>' : ''}
             — ${new Date(f.createdAt).toLocaleString()}
           </div>
           <div class="preview" style="max-height:none">${escHtml(f.text)}</div>
-          ${f.response ? `<div class="note" style="color:#a7c957;margin-top:0.5rem">Owner response: ${escHtml(f.response)}</div>` : ''}
+          ${f.response ? `<div class="note" style="color:#2EC4B6;margin-top:0.5rem">Owner response: ${escHtml(f.response)}</div>` : ''}
         </div>`).join('')
       : '<p class="empty-state">No feedback tagged to this session yet.</p>';
   } catch (e) {
-    feedbackBox.innerHTML = `<p style="color:#e07a7a">Failed to load: ${escHtml(e.message)}</p>`;
+    feedbackBox.innerHTML = `<p style="color:#B5401F">Failed to load: ${escHtml(e.message)}</p>`;
   }
 }
 

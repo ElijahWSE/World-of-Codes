@@ -662,7 +662,7 @@ export default class WorldScene extends Phaser.Scene {
       el.style.cssText = [
         'position:fixed;top:0.6rem;left:0.6rem;z-index:9000',
         'padding:0.3rem 0.75rem;border-radius:6px',
-        'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:700',
+        "font-family:'Nunito',system-ui,sans-serif;font-size:0.78rem;font-weight:700",
         'pointer-events:none;letter-spacing:0.02em',
       ].join(';');
       document.body.appendChild(el);
@@ -670,9 +670,9 @@ export default class WorldScene extends Phaser.Scene {
     }
     const inSession = !!this._activeInPersonSessionId;
     this._worldBadgeEl.textContent = inSession ? 'In-Person Session' : 'Main World';
-    this._worldBadgeEl.style.background = inSession ? '#3a2a1acc' : '#16213ecc';
-    this._worldBadgeEl.style.color      = inSession ? '#f4a261' : '#8ab4f8';
-    this._worldBadgeEl.style.border     = inSession ? '1px solid #f4a261' : '1px solid #2a4a7f';
+    this._worldBadgeEl.style.background = inSession ? '#FFE8DEcc' : '#FFFFFFcc';
+    this._worldBadgeEl.style.color      = inSession ? '#FF7A59' : '#2EC4B6';
+    this._worldBadgeEl.style.border     = inSession ? '1px solid #FF7A59' : '1px solid #F0E4C8';
   }
 
   // Portal/warp effect used whenever the player's world swaps out from under
@@ -802,8 +802,8 @@ export default class WorldScene extends Phaser.Scene {
     el.style.cssText = [
       'position:fixed;top:1rem;left:50%;transform:translateX(-50%)',
       'z-index:9999;padding:0.75rem 1.1rem;border-radius:8px',
-      'background:#1a1a2e;border:1px solid #f4a261;color:#e0e0e0',
-      'font-family:system-ui,sans-serif;font-size:0.85rem',
+      'background:#FFFFFF;border:1px solid #FF7A59;color:#2D3047',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.85rem",
       'display:flex;align-items:center;gap:0.75rem',
     ].join(';');
 
@@ -813,7 +813,7 @@ export default class WorldScene extends Phaser.Scene {
     const btn = document.createElement('button');
     btn.textContent = 'Accept';
     btn.style.cssText = [
-      'padding:0.35rem 0.9rem;background:#f4a261;color:#1a1a2e',
+      'padding:0.35rem 0.9rem;background:#FF7A59;color:#ffffff',
       'border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.85rem',
     ].join(';');
     btn.onclick = () => {
@@ -856,8 +856,8 @@ export default class WorldScene extends Phaser.Scene {
     el.style.cssText = [
       'position:fixed;top:1rem;left:50%;transform:translateX(-50%)',
       'z-index:9999;padding:0.75rem 1.1rem;border-radius:8px',
-      'background:#1a1a2e;border:1px solid #e9c46a;color:#e0e0e0',
-      'font-family:system-ui,sans-serif;font-size:0.85rem',
+      'background:#FFFFFF;border:1px solid #FFD84D;color:#2D3047',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.85rem",
       'display:flex;align-items:center;gap:0.75rem',
     ].join(';');
 
@@ -866,7 +866,7 @@ export default class WorldScene extends Phaser.Scene {
     const btn = document.createElement('button');
     btn.textContent = 'Return to Main World now';
     btn.style.cssText = [
-      'padding:0.35rem 0.9rem;background:#e9c46a;color:#1a1a2e',
+      'padding:0.35rem 0.9rem;background:#FFD84D;color:#2D3047',
       'border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.85rem',
     ].join(';');
     btn.onclick = () => {
@@ -1013,24 +1013,24 @@ export default class WorldScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#16213e;border:1px solid #2a4a7f;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
-        <h2 id="woc-claim-title" style="color:#f4a261;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
-        <p id="woc-claim-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 id="woc-claim-title" style="color:#FF7A59;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
+        <p id="woc-claim-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
         <label style="display:block;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name (becomes the portal label — max 20 chars)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name (becomes the portal label — max 20 chars)</span>
           <input id="woc-claim-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
-            style="width:100%;padding:0.5rem 0.75rem;background:#0f3460;border:1px solid #2a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+            style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
         </label>
         <label style="display:block;margin-bottom:1rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">World Code (paste from Gemini Prompt 2)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">World Code (paste from Gemini Prompt 2)</span>
           <textarea id="woc-claim-code" placeholder="// Paste your room code here..."
-            style="width:100%;height:180px;padding:0.5rem 0.75rem;background:#0f3460;border:1px solid #2a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:180px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
         ${buildSharingFieldsHTML('claim')}
         <div id="woc-claim-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button id="woc-claim-cancel" style="padding:0.5rem 1.25rem;background:#2a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
-          <button id="woc-claim-submit" style="padding:0.5rem 1.25rem;background:#f4a261;color:#1a1a2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit World</button>
+          <button id="woc-claim-cancel" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-claim-submit" style="padding:0.5rem 1.25rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit World</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1058,7 +1058,7 @@ export default class WorldScene extends Phaser.Scene {
     document.getElementById('woc-claim-name').value  = '';
     document.getElementById('woc-claim-code').value  = '';
     document.getElementById('woc-claim-status').textContent = '';
-    document.getElementById('woc-claim-status').style.color = '#aaa';
+    document.getElementById('woc-claim-status').style.color = '#6E7191';
     document.getElementById('woc-claim-submit').disabled = false;
     document.getElementById('woc-claim-name').focus();
     this._claimOpen = true;
@@ -1083,14 +1083,14 @@ export default class WorldScene extends Phaser.Scene {
     const status = document.getElementById('woc-claim-status');
     const btn    = document.getElementById('woc-claim-submit');
 
-    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
-    if (!code) { status.textContent = 'Please paste your room code.'; status.style.color = '#e07a7a'; return; }
+    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#B5401F'; return; }
+    if (!code) { status.textContent = 'Please paste your room code.'; status.style.color = '#B5401F'; return; }
     const meta = readSharingFields('claim');
-    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#B5401F'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const res  = await fetch(apiUrl('/api/submit'), {
@@ -1110,19 +1110,19 @@ export default class WorldScene extends Phaser.Scene {
       if (!res.ok) {
         const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
         status.textContent = msg;
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         const successMsg = this._claimIsUpdate
           ? '✓ Update submitted! You\'ll be notified in-game when the admin approves your update.'
           : '✓ Submitted! The admin will review your world. You\'ll be notified in-game when it\'s approved.';
         status.textContent = successMsg;
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
         setTimeout(() => this._closeClaimOverlay(), 4000);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -1130,9 +1130,9 @@ export default class WorldScene extends Phaser.Scene {
   // ── Toast notification ─────────────────────────────────────────────────────
   _showToast(message, type = 'info') {
     const colors = {
-      approved: { bg: '#1d3a2e', border: '#2d6a4f', text: '#52b788' },
-      rejected: { bg: '#3a1d1d', border: '#6a2d2d', text: '#e07a7a' },
-      info:     { bg: '#1a1a2e', border: '#444466', text: '#e0e0e0' },
+      approved: { bg: '#DCF7F1', border: '#0f7a6c', text: '#0f7a6c' },
+      rejected: { bg: '#FFE3D8', border: '#B5401F', text: '#B5401F' },
+      info:     { bg: '#FFFFFF', border: '#F0E4C8', text: '#2D3047' },
     };
     const c = colors[type] ?? colors.info;
     const toast = document.createElement('div');
@@ -1140,7 +1140,7 @@ export default class WorldScene extends Phaser.Scene {
       'position:fixed;bottom:2rem;left:50%;transform:translateX(-50%)',
       'z-index:9998;padding:0.75rem 1.5rem;border-radius:8px',
       `background:${c.bg};border:1px solid ${c.border};color:${c.text}`,
-      'font-size:0.9rem;font-family:system-ui,sans-serif;font-weight:600',
+      "font-size:0.9rem;font-family:'Nunito',system-ui,sans-serif;font-weight:600",
       'max-width:80vw;text-align:center;pointer-events:none',
     ].join(';');
     toast.textContent = message;
@@ -1154,9 +1154,9 @@ export default class WorldScene extends Phaser.Scene {
     el.textContent = 'Sign Out';
     el.style.cssText = [
       'position:fixed;top:1rem;right:1rem;z-index:9997',
-      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
-      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
-      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+      'padding:0.4rem 0.9rem;background:rgba(255,255,255,0.85);color:#2D3047',
+      'border:1px solid #F0E4C8;border-radius:6px;cursor:pointer',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.78rem;font-weight:600",
     ].join(';');
     el.onclick = () => signOutUser();
     document.body.appendChild(el);
@@ -1177,9 +1177,9 @@ export default class WorldScene extends Phaser.Scene {
     el.textContent = 'My Profile';
     el.style.cssText = [
       'position:fixed;top:1rem;right:6.2rem;z-index:9997',
-      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
-      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
-      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+      'padding:0.4rem 0.9rem;background:rgba(255,255,255,0.85);color:#2D3047',
+      'border:1px solid #F0E4C8;border-radius:6px;cursor:pointer',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.78rem;font-weight:600",
     ].join(';');
     el.onclick = () => this._openProfile(this.playerUid);
     document.body.appendChild(el);
@@ -1217,9 +1217,9 @@ export default class WorldScene extends Phaser.Scene {
     toggleBtn.textContent = 'Players Online';
     toggleBtn.style.cssText = [
       'position:fixed;top:1rem;right:1rem;z-index:9997;margin-top:2.2rem',
-      'padding:0.4rem 0.9rem;background:rgba(22,33,62,0.85);color:#e0e0e0',
-      'border:1px solid #2a4a7f;border-radius:6px;cursor:pointer',
-      'font-family:system-ui,sans-serif;font-size:0.78rem;font-weight:600',
+      'padding:0.4rem 0.9rem;background:rgba(255,255,255,0.85);color:#2D3047',
+      'border:1px solid #F0E4C8;border-radius:6px;cursor:pointer',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.78rem;font-weight:600",
     ].join(';');
     document.body.appendChild(toggleBtn);
     this._playersOnlineBtnEl = toggleBtn;
@@ -1228,8 +1228,8 @@ export default class WorldScene extends Phaser.Scene {
     panel.style.cssText = [
       'position:fixed;top:5.4rem;right:1rem;z-index:9997;display:none',
       'width:220px;max-height:60vh;overflow-y:auto',
-      'background:rgba(22,33,62,0.95);border:1px solid #2a4a7f;border-radius:6px;padding:0.6rem',
-      'font-family:system-ui,sans-serif;font-size:0.78rem;color:#e0e0e0',
+      'background:rgba(255,255,255,0.95);border:1px solid #F0E4C8;border-radius:6px;padding:0.6rem',
+      "font-family:'Nunito',system-ui,sans-serif;font-size:0.78rem;color:#2D3047",
     ].join(';');
     document.body.appendChild(panel);
     this._playersOnlinePanelEl = panel;
@@ -1251,13 +1251,13 @@ export default class WorldScene extends Phaser.Scene {
       const players = data.players ?? [];
       panel.innerHTML = '';
       if (players.length === 0) {
-        panel.innerHTML = '<div style="color:#888;font-style:italic">No one else online.</div>';
+        panel.innerHTML = '<div style="color:#6E7191;font-style:italic">No one else online.</div>';
         return;
       }
       for (const p of players) {
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.4rem;padding:0.3rem 0.2rem;cursor:pointer;border-radius:4px';
-        row.onmouseenter = () => row.style.background = 'rgba(42,74,127,0.4)';
+        row.onmouseenter = () => row.style.background = 'rgba(240,228,200,0.6)';
         row.onmouseleave = () => row.style.background = 'transparent';
         const name = document.createElement('span');
         name.textContent = p.name || 'Player';
@@ -1265,14 +1265,14 @@ export default class WorldScene extends Phaser.Scene {
         if (p.context === 'session') {
           const badge = document.createElement('span');
           badge.textContent = 'In-Person Session';
-          badge.style.cssText = 'background:#3a2a1a;color:#f4a261;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.65rem;font-weight:700;white-space:nowrap';
+          badge.style.cssText = 'background:#FFE8DE;color:#C2410C;padding:0.1rem 0.4rem;border-radius:999px;font-size:0.65rem;font-weight:700;white-space:nowrap';
           row.appendChild(badge);
         }
         row.onclick = () => this._openProfile(p.uid);
         panel.appendChild(row);
       }
     } catch (e) {
-      panel.innerHTML = '<div style="color:#e07a7a">Could not load players.</div>';
+      panel.innerHTML = '<div style="color:#B5401F">Could not load players.</div>';
     }
   }
 

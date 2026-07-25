@@ -49,25 +49,25 @@ function escapeHtml(s) {
 export function buildSharingFieldsHTML(prefix, { includeShare = true } = {}) {
   return `
     <label style="display:block;margin-bottom:0.75rem">
-      <span id="woc-${prefix}-versiondesc-label" style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Describe this creation</span>
+      <span id="woc-${prefix}-versiondesc-label" style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Describe this creation</span>
       <input id="woc-${prefix}-versiondesc" type="text" maxlength="200" placeholder="e.g. Added a jump mechanic"
-        style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
     </label>
     <label style="display:block;margin-bottom:0.75rem">
-      <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Based on another shared creation? (optional)</span>
+      <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Based on another shared creation? (optional)</span>
       <select id="woc-${prefix}-basedon"
-        style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+        style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
         <option value="">— none —</option>
       </select>
     </label>
     ${includeShare ? `
-    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;color:#aaa;font-size:0.85rem;cursor:pointer">
+    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;color:#6E7191;font-size:0.85rem;cursor:pointer">
       <input id="woc-${prefix}-share" type="checkbox">
       Share this code so others can remix it
     </label>
     <div id="woc-${prefix}-share-status" style="margin-bottom:0.75rem;font-size:0.78rem;min-height:1rem"></div>` : ''}
-    <div id="woc-${prefix}-versionpicker" style="display:none;margin-bottom:1rem;padding:0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:6px">
-      <div style="color:#e07a7a;font-size:0.82rem;margin-bottom:0.5rem">This already has 5 saved versions — choose one to replace:</div>
+    <div id="woc-${prefix}-versionpicker" style="display:none;margin-bottom:1rem;padding:0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px">
+      <div style="color:#B5401F;font-size:0.82rem;margin-bottom:0.5rem">This already has 5 saved versions — choose one to replace:</div>
       <div id="woc-${prefix}-versionpicker-list"></div>
     </div>`;
 }
@@ -112,7 +112,7 @@ export async function refreshSharingFields(prefix, kind, slotKey) {
     pickerBox.style.display = 'block';
     for (const v of meta.versions) {
       const row = document.createElement('label');
-      row.style.cssText = 'display:block;margin-bottom:0.4rem;color:#e0e0e0;font-size:0.8rem;cursor:pointer';
+      row.style.cssText = 'display:block;margin-bottom:0.4rem;color:#2D3047;font-size:0.8rem;cursor:pointer';
       const date = new Date(v.createdAt).toLocaleString();
       row.innerHTML = `<input type="radio" name="woc-${prefix}-dropversion" value="${escapeHtml(v.versionId)}" style="margin-right:0.5rem">${escapeHtml(v.description || '(no description)')} — ${escapeHtml(v.displayName)}, ${date}`;
       pickerList.appendChild(row);
@@ -157,7 +157,7 @@ export function wireShareCheckbox(prefix, getMeta) {
     const hasApprovedVersion = (meta?.versions?.length ?? 0) > 0;
     if (!hasApprovedVersion) {
       status.textContent = checkbox.checked ? 'Will share automatically once this is approved.' : '';
-      status.style.color = '#8fa8c9';
+      status.style.color = '#6E7191';
       return;
     }
     checkbox.disabled = true;
@@ -165,15 +165,15 @@ export function wireShareCheckbox(prefix, getMeta) {
       const data = await setShared(meta.creationKey, checkbox.checked);
       if (data.ok) {
         status.textContent = checkbox.checked ? '✓ Shared — others can pick this as a remix source.' : 'Sharing turned off.';
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
       } else {
         status.textContent = data.error ?? 'Failed to update sharing.';
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         checkbox.checked = !checkbox.checked;
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       checkbox.checked = !checkbox.checked;
     } finally {
       checkbox.disabled = false;

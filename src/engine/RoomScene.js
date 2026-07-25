@@ -948,24 +948,24 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
-        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Game Code</h2>
-        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Submit Game Code</h2>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
         <label style="display:block;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
           <input id="woc-game-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
-            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+            style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
         </label>
         <label style="display:block;margin-bottom:1rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Game Code (paste from Gemini)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Game Code (paste from Gemini)</span>
           <textarea id="woc-game-code" placeholder="// Paste your game code here..."
-            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
         ${buildSharingFieldsHTML('game')}
         <div id="woc-game-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button id="woc-game-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
-          <button id="woc-game-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Game</button>
+          <button id="woc-game-cancel" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-game-submit" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Game</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -982,7 +982,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-game-name').value  = this._playerName ?? '';
     document.getElementById('woc-game-code').value  = '';
     document.getElementById('woc-game-status').textContent = '';
-    document.getElementById('woc-game-status').style.color = '#aaa';
+    document.getElementById('woc-game-status').style.color = '#6E7191';
     document.getElementById('woc-game-submit').disabled = false;
     document.getElementById('woc-game-name').focus();
     this._gameOverlayOpen = true;
@@ -1001,14 +1001,14 @@ export default class RoomScene extends Phaser.Scene {
     const status = document.getElementById('woc-game-status');
     const btn    = document.getElementById('woc-game-submit');
 
-    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
-    if (!code) { status.textContent = 'Please paste your game code.'; status.style.color = '#e07a7a'; return; }
+    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#B5401F'; return; }
+    if (!code) { status.textContent = 'Please paste your game code.'; status.style.color = '#B5401F'; return; }
     const meta = readSharingFields('game');
-    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#B5401F'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const res  = await fetch(apiUrl('/api/submit'), {
@@ -1028,16 +1028,16 @@ export default class RoomScene extends Phaser.Scene {
       if (!res.ok) {
         const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
         status.textContent = msg;
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         status.textContent = '✓ ' + (data.message ?? 'Game submitted! The admin will review it soon.');
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
         setTimeout(() => this._closeGameOverlay(), 4000);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -1062,40 +1062,40 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
-        <h2 id="woc-object-title" style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Add Object</h2>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 id="woc-object-title" style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Add Object</h2>
         <div id="woc-object-mode-row" style="display:flex;gap:0.5rem;margin-bottom:1rem">
-          <button id="woc-object-mode-decorative" style="flex:1;padding:0.4rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Decorative</button>
-          <button id="woc-object-mode-interactive" style="flex:1;padding:0.4rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Interactive</button>
+          <button id="woc-object-mode-decorative" style="flex:1;padding:0.4rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Decorative</button>
+          <button id="woc-object-mode-interactive" style="flex:1;padding:0.4rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Interactive</button>
         </div>
-        <p id="woc-object-desc" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
+        <p id="woc-object-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
         <label id="woc-object-config-label" style="display:block;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
           <textarea id="woc-object-config" placeholder='{"shapes":[{"type":"circle","x":0,"y":0,"r":20,"color":"#f4a261"}],"scale":1,"animation":"pulse"}'
-            style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:160px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
         <label id="woc-object-code-label" style="display:none;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Object Code (paste from Gemini, generated against src/objects/_template.js)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Object Code (paste from Gemini, generated against src/objects/_template.js)</span>
           <textarea id="woc-object-code" placeholder="// Paste your interactive object code here..."
-            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
         <div id="woc-object-sharing-wrap" style="display:none">${buildSharingFieldsHTML('object', { includeShare: false })}</div>
         <div id="woc-object-links">
           <label style="display:block;margin-bottom:0.5rem">
-            <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
+            <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact label (optional)</span>
             <input id="woc-object-link-label" type="text" maxlength="40" placeholder="e.g. My Portfolio Site"
-              style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+              style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
           </label>
           <label style="display:block;margin-bottom:1rem">
-            <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact URL (optional — opens in a new tab, not embedded)</span>
+            <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Linked artifact URL (optional — opens in a new tab, not embedded)</span>
             <input id="woc-object-link-url" type="text" maxlength="500" placeholder="https://..."
-              style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+              style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
           </label>
         </div>
         <div id="woc-object-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button id="woc-object-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
-          <button id="woc-object-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Add Object</button>
+          <button id="woc-object-cancel" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-object-submit" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Add Object</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1117,10 +1117,10 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-object-code-label').style.display   = decorative ? 'none' : 'block';
     document.getElementById('woc-object-sharing-wrap').style.display = decorative ? 'none' : 'block';
     document.getElementById('woc-object-links').style.display        = decorative ? 'block' : 'none';
-    document.getElementById('woc-object-mode-decorative').style.background  = decorative ? '#88ccff' : '#1a4a7f';
-    document.getElementById('woc-object-mode-decorative').style.color       = decorative ? '#0d1b2e' : '#e0e0e0';
-    document.getElementById('woc-object-mode-interactive').style.background = decorative ? '#1a4a7f' : '#88ccff';
-    document.getElementById('woc-object-mode-interactive').style.color      = decorative ? '#e0e0e0' : '#0d1b2e';
+    document.getElementById('woc-object-mode-decorative').style.background  = decorative ? '#2EC4B6' : '#F0E4C8';
+    document.getElementById('woc-object-mode-decorative').style.color       = decorative ? '#ffffff' : '#2D3047';
+    document.getElementById('woc-object-mode-interactive').style.background = decorative ? '#F0E4C8' : '#2EC4B6';
+    document.getElementById('woc-object-mode-interactive').style.color      = decorative ? '#2D3047' : '#ffffff';
     document.getElementById('woc-object-desc').textContent = decorative
       ? 'Paste a shape-config JSON (ask Gemini to generate one from the object contract). It\'s placed where you\'re standing and appears instantly — no admin review needed for decorative objects.'
       : 'Paste interactive object code (ask Gemini to generate one from src/objects/_template.js). Submitted for admin review, same as a room or game — the admin reviews just this object, never your whole room.';
@@ -1155,7 +1155,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-object-link-label').value = editEntry?.data.linkedArtifacts?.[0]?.label ?? '';
     document.getElementById('woc-object-link-url').value   = editEntry?.data.linkedArtifacts?.[0]?.url   ?? '';
     document.getElementById('woc-object-status').textContent = '';
-    document.getElementById('woc-object-status').style.color = '#aaa';
+    document.getElementById('woc-object-status').style.color = '#6E7191';
     document.getElementById('woc-object-submit').disabled = false;
     document.getElementById('woc-object-config').focus();
     // Snapshot where the player is standing right now — used only in add
@@ -1187,13 +1187,13 @@ export default class RoomScene extends Phaser.Scene {
     }
 
     const raw = document.getElementById('woc-object-config').value.trim();
-    if (!raw) { status.textContent = 'Please paste a shape config.'; status.style.color = '#e07a7a'; return; }
+    if (!raw) { status.textContent = 'Please paste a shape config.'; status.style.color = '#B5401F'; return; }
     let shapeConfig;
     try {
       shapeConfig = JSON.parse(raw);
     } catch (e) {
       status.textContent = `Invalid JSON: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
 
@@ -1203,7 +1203,7 @@ export default class RoomScene extends Phaser.Scene {
 
     btn.disabled = true;
     status.textContent = editingId ? 'Saving...' : 'Adding...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const idToken = await getFreshIdToken();
@@ -1219,17 +1219,17 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       if (!res.ok) {
         status.textContent = data.error ?? (editingId ? 'Failed to save object' : 'Failed to add object');
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         status.textContent = editingId ? '✓ Saved!' : '✓ Object added!';
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
         this._fetchAndDrawObjects();
         setTimeout(() => this._closeObjectOverlay(), 1200);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -1242,13 +1242,13 @@ export default class RoomScene extends Phaser.Scene {
     const status = document.getElementById('woc-object-status');
     const btn    = document.getElementById('woc-object-submit');
 
-    if (!code) { status.textContent = 'Please paste your object code.'; status.style.color = '#e07a7a'; return; }
+    if (!code) { status.textContent = 'Please paste your object code.'; status.style.color = '#B5401F'; return; }
     const sharingMeta = readSharingFields('object');
-    if (!sharingMeta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
+    if (!sharingMeta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#B5401F'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const res = await fetch(apiUrl('/api/submit'), {
@@ -1268,16 +1268,16 @@ export default class RoomScene extends Phaser.Scene {
       if (!res.ok) {
         const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
         status.textContent = msg;
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         status.textContent = '✓ ' + (data.message ?? 'Object submitted! The admin will review it soon.');
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
         setTimeout(() => this._closeObjectOverlay(), 4000);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -1295,24 +1295,24 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:system-ui,sans-serif">
-        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Submit Room Music</h2>
-        <p style="color:#888;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated music code below (ask Gemini to generate one from src/rooms/_music_template.js — see [H] Help for a ready-made prompt). The admin will review it, and it'll play automatically whenever a player enters your room.</p>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Submit Room Music</h2>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated music code below (ask Gemini to generate one from src/rooms/_music_template.js — see [H] Help for a ready-made prompt). The admin will review it, and it'll play automatically whenever a player enters your room.</p>
         <label style="display:block;margin-bottom:0.75rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
           <input id="woc-music-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
-            style="width:100%;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.9rem;box-sizing:border-box;outline:none">
+            style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.9rem;box-sizing:border-box;outline:none">
         </label>
         <label style="display:block;margin-bottom:1rem">
-          <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">Music Code (paste from Gemini)</span>
+          <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Music Code (paste from Gemini)</span>
           <textarea id="woc-music-code" placeholder="// Paste your room music code here..."
-            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+            style="width:100%;height:200px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.78rem;font-family:'Courier New',monospace;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </label>
         ${buildSharingFieldsHTML('music')}
         <div id="woc-music-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button id="woc-music-cancel" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
-          <button id="woc-music-submit" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Music</button>
+          <button id="woc-music-cancel" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Cancel</button>
+          <button id="woc-music-submit" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Submit Music</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1329,7 +1329,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-music-name').value  = this._playerName ?? '';
     document.getElementById('woc-music-code').value  = '';
     document.getElementById('woc-music-status').textContent = '';
-    document.getElementById('woc-music-status').style.color = '#aaa';
+    document.getElementById('woc-music-status').style.color = '#6E7191';
     document.getElementById('woc-music-submit').disabled = false;
     document.getElementById('woc-music-name').focus();
     this._musicOverlayOpen = true;
@@ -1348,14 +1348,14 @@ export default class RoomScene extends Phaser.Scene {
     const status = document.getElementById('woc-music-status');
     const btn    = document.getElementById('woc-music-submit');
 
-    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#e07a7a'; return; }
-    if (!code) { status.textContent = 'Please paste your music code.'; status.style.color = '#e07a7a'; return; }
+    if (!name) { status.textContent = 'Please enter your name.'; status.style.color = '#B5401F'; return; }
+    if (!code) { status.textContent = 'Please paste your music code.'; status.style.color = '#B5401F'; return; }
     const meta = readSharingFields('music');
-    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#e07a7a'; return; }
+    if (!meta) { status.textContent = 'Choose which existing version to replace before submitting.'; status.style.color = '#B5401F'; return; }
 
     btn.disabled = true;
     status.textContent = 'Submitting...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const res  = await fetch(apiUrl('/api/submit'), {
@@ -1375,16 +1375,16 @@ export default class RoomScene extends Phaser.Scene {
       if (!res.ok) {
         const msg = data.errors ? data.errors.join('\n') : (data.error ?? 'Submission failed');
         status.textContent = msg;
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         status.textContent = '✓ ' + (data.message ?? 'Music submitted! The admin will review it soon.');
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
         setTimeout(() => this._closeMusicOverlay(), 4000);
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -1603,19 +1603,19 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:system-ui,sans-serif">
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:'Nunito',system-ui,sans-serif">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.5rem">
-          <h2 id="woc-help-title" style="color:#88ccff;margin:0;font-size:1.1rem"></h2>
-          <span id="woc-help-pagenum" style="color:#888;font-size:0.8rem"></span>
+          <h2 id="woc-help-title" style="color:#2EC4B6;margin:0;font-size:1.1rem"></h2>
+          <span id="woc-help-pagenum" style="color:#6E7191;font-size:0.8rem"></span>
         </div>
-        <pre id="woc-help-body" style="color:#e0e0e0;font-size:0.8rem;font-family:'Courier New',monospace;white-space:pre-wrap;line-height:1.5;max-height:340px;overflow-y:auto;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;padding:0.75rem;margin:0 0 1rem"></pre>
+        <pre id="woc-help-body" style="color:#2D3047;font-size:0.8rem;font-family:'Courier New',monospace;white-space:pre-wrap;line-height:1.5;max-height:340px;overflow-y:auto;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;padding:0.75rem;margin:0 0 1rem"></pre>
         <div style="display:flex;gap:0.75rem;justify-content:space-between;align-items:center">
           <div style="display:flex;gap:0.5rem">
-            <button id="woc-help-prev" style="padding:0.5rem 1rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">← Prev</button>
-            <button id="woc-help-next" style="padding:0.5rem 1rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Next →</button>
+            <button id="woc-help-prev" style="padding:0.5rem 1rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">← Prev</button>
+            <button id="woc-help-next" style="padding:0.5rem 1rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Next →</button>
           </div>
-          <button id="woc-help-copy" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Copy Prompt</button>
-          <button id="woc-help-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-help-copy" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Copy Prompt</button>
+          <button id="woc-help-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1684,21 +1684,21 @@ export default class RoomScene extends Phaser.Scene {
     ].join(';');
     const field = (id, label, placeholder) => `
       <label style="display:block;margin-bottom:0.85rem">
-        <span style="display:block;color:#aaa;font-size:0.8rem;margin-bottom:0.3rem">${label}</span>
+        <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">${label}</span>
         <textarea id="${id}" placeholder="${placeholder}"
-          style="width:100%;height:80px;padding:0.5rem 0.75rem;background:#0a2040;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+          style="width:100%;height:80px;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.85rem;font-family:'Nunito',system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none"></textarea>
       </label>`;
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:system-ui,sans-serif">
-        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Creative Process Log</h2>
-        <p id="woc-processlog-subtitle" style="color:#888;font-size:0.82rem;margin-bottom:1.25rem"></p>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Creative Process Log</h2>
+        <p id="woc-processlog-subtitle" style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem"></p>
         ${field('woc-processlog-past', 'Past — how did this room come together?', 'What did you learn while making this?')}
         ${field('woc-processlog-present', 'Present — what is this room now?', 'What does it look/feel like today?')}
         ${field('woc-processlog-future', "Future — what's next?", 'What do you want to add or change next?')}
         <div id="woc-processlog-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem;white-space:pre-wrap"></div>
         <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button id="woc-processlog-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
-          <button id="woc-processlog-save" style="padding:0.5rem 1.25rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Save</button>
+          <button id="woc-processlog-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-processlog-save" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Save</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1740,7 +1740,7 @@ export default class RoomScene extends Phaser.Scene {
     } catch (e) {
       pastEl.value = presentEl.value = futureEl.value = '';
       status.textContent = 'Could not load process log: ' + e.message;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
     }
   }
 
@@ -1759,7 +1759,7 @@ export default class RoomScene extends Phaser.Scene {
 
     btn.disabled = true;
     status.textContent = 'Saving...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
 
     try {
       const idToken = await getFreshIdToken();
@@ -1771,14 +1771,14 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       if (!res.ok) {
         status.textContent = data.error ?? 'Save failed';
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
       } else {
         status.textContent = '✓ Saved';
-        status.style.color = '#52b788';
+        status.style.color = '#2EC4B6';
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
     } finally {
       btn.disabled = false;
     }
@@ -1801,14 +1801,14 @@ export default class RoomScene extends Phaser.Scene {
       'background:rgba(0,0,0,0.72)',
     ].join(';');
     el.innerHTML = `
-      <div style="background:#0d1b2e;border:1px solid #1a4a7f;border-radius:12px;padding:2rem;width:640px;max-width:95vw;max-height:90vh;overflow-y:auto;box-sizing:border-box;font-family:system-ui,sans-serif">
-        <h2 style="color:#88ccff;margin:0 0 0.5rem;font-size:1.1rem">Feedback</h2>
-        <p style="color:#888;font-size:0.82rem;margin-bottom:1rem">What visitors and the creator think of this room, its game, its music, and its objects.</p>
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:640px;max-width:95vw;max-height:90vh;overflow-y:auto;box-sizing:border-box;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Feedback</h2>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1rem">What visitors and the creator think of this room, its game, its music, and its objects.</p>
         <div id="woc-feedback-filterbar" style="margin-bottom:0.75rem"></div>
         <div id="woc-feedback-list" style="margin-bottom:1.25rem"></div>
         <div id="woc-feedback-forms"></div>
         <div style="display:flex;justify-content:flex-end;margin-top:1rem">
-          <button id="woc-feedback-close" style="padding:0.5rem 1.25rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-feedback-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -1852,10 +1852,10 @@ export default class RoomScene extends Phaser.Scene {
   // Colors are the single source of truth shared by the filter tabs and
   // each card's "about" chip, so the two can never drift out of sync.
   static FEEDBACK_ABOUT_META = {
-    room:   { label: 'Room',   bg: '#1a3060', fg: '#8ab4f8' },
-    game:   { label: 'Game',   bg: '#3a1f4d', fg: '#c39bd3' },
-    music:  { label: 'Music',  bg: '#123d2c', fg: '#6fcf97' },
-    object: { label: 'Object', bg: '#4a2f10', fg: '#f4a261' },
+    room:   { label: 'Room',   bg: '#DCF7F1', fg: '#0f7a6c' },
+    game:   { label: 'Game',   bg: '#F3E8FA', fg: '#7C4DA8' },
+    music:  { label: 'Music',  bg: '#FFF3C4', fg: '#8a6d1f' },
+    object: { label: 'Object', bg: '#FFE8DE', fg: '#C2410C' },
   };
 
   _renderFeedbackList(entries) {
@@ -1879,12 +1879,12 @@ export default class RoomScene extends Phaser.Scene {
       const active = this._feedbackAboutFilter === value;
       const btn = document.createElement('button');
       btn.textContent = `${label} (${count})`;
-      btn.style.cssText = `padding:0.25rem 0.7rem;border-radius:999px;border:1px solid ${active ? fg : '#1a4a7f'};background:${active ? bg : 'transparent'};color:${fg};cursor:pointer;font-size:0.75rem;font-weight:700`;
+      btn.style.cssText = `padding:0.25rem 0.7rem;border-radius:999px;border:1px solid ${active ? fg : '#F0E4C8'};background:${active ? bg : 'transparent'};color:${fg};cursor:pointer;font-size:0.75rem;font-weight:700`;
       btn.onclick = () => { this._feedbackAboutFilter = value; this._renderFeedbackList(this._feedbackEntries); };
       return btn;
     };
 
-    tabsRow.appendChild(makeTab('all', 'All', '#1a4a7f', '#e0e0e0'));
+    tabsRow.appendChild(makeTab('all', 'All', '#F0E4C8', '#2D3047'));
     for (const key of Object.keys(ABOUT_META)) {
       const m = ABOUT_META[key];
       tabsRow.appendChild(makeTab(key, m.label, m.bg, m.fg));
@@ -1893,7 +1893,7 @@ export default class RoomScene extends Phaser.Scene {
 
     if (this._isRoomOwner) {
       const archLabel = document.createElement('label');
-      archLabel.style.cssText = 'display:flex;align-items:center;gap:0.4rem;color:#888;font-size:0.78rem;cursor:pointer';
+      archLabel.style.cssText = 'display:flex;align-items:center;gap:0.4rem;color:#6E7191;font-size:0.78rem;cursor:pointer';
       const archCheckbox = document.createElement('input');
       archCheckbox.type = 'checkbox';
       archCheckbox.checked = this._feedbackShowArchived;
@@ -1906,18 +1906,18 @@ export default class RoomScene extends Phaser.Scene {
     // ── List ──────────────────────────────────────────────────────────────
     listEl.innerHTML = '';
     if (filtered.length === 0) {
-      listEl.innerHTML = '<p style="color:#666;font-style:italic;font-size:0.85rem">No feedback here yet.</p>';
+      listEl.innerHTML = '<p style="color:#6E7191;font-style:italic;font-size:0.85rem">No feedback here yet.</p>';
       return;
     }
     for (const entry of filtered) {
       const card = document.createElement('div');
-      card.style.cssText = `background:#0a2040;border:1px solid #1a4a7f;border-radius:6px;padding:0.85rem;margin-bottom:0.75rem${entry.archived ? ';opacity:0.6' : ''}`;
+      card.style.cssText = `background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.85rem;margin-bottom:0.75rem${entry.archived ? ';opacity:0.6' : ''}`;
 
       const headerRow = document.createElement('div');
       headerRow.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;margin-bottom:0.4rem';
 
       const meta = document.createElement('div');
-      meta.style.cssText = 'font-size:0.75rem;color:#888;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap';
+      meta.style.cssText = 'font-size:0.75rem;color:#6E7191;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap';
       const who = document.createElement('span');
       who.textContent = entry.source === 'online' ? (entry.authorName || 'A player') : "Self-recorded (creator)";
       meta.appendChild(who);
@@ -1931,7 +1931,7 @@ export default class RoomScene extends Phaser.Scene {
       if (entry.archived) {
         const archTag = document.createElement('span');
         archTag.textContent = 'Archived';
-        archTag.style.cssText = 'color:#666;font-style:italic;font-size:0.72rem';
+        archTag.style.cssText = 'color:#6E7191;font-style:italic;font-size:0.72rem';
         meta.appendChild(archTag);
       }
       headerRow.appendChild(meta);
@@ -1952,7 +1952,7 @@ export default class RoomScene extends Phaser.Scene {
       if (canEdit && !isEditing) {
         const editBtn = document.createElement('button');
         editBtn.textContent = 'Edit';
-        editBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
+        editBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
         editBtn.onclick = () => { this._feedbackEditingId = entry.feedbackId; this._renderFeedbackList(this._feedbackEntries); };
         rightControls.appendChild(editBtn);
       }
@@ -1960,9 +1960,9 @@ export default class RoomScene extends Phaser.Scene {
       if (this._isRoomOwner) {
         const archBtn = document.createElement('button');
         archBtn.textContent = entry.archived ? 'Unarchive' : 'Archive';
-        archBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
+        archBtn.style.cssText = 'padding:0.2rem 0.6rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-size:0.72rem';
         const archStatus = document.createElement('span');
-        archStatus.style.cssText = 'font-size:0.7rem;color:#e07a7a';
+        archStatus.style.cssText = 'font-size:0.7rem;color:#B5401F';
         archBtn.onclick = () => this._archiveFeedback(entry.feedbackId, !entry.archived, archBtn, archStatus);
         rightControls.appendChild(archBtn);
         rightControls.appendChild(archStatus);
@@ -1973,7 +1973,7 @@ export default class RoomScene extends Phaser.Scene {
 
       if (isEditing) {
         const editSelect = document.createElement('select');
-        editSelect.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
+        editSelect.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
         editSelect.innerHTML = `
           <option value="">What's this about? (optional)</option>
           <option value="room">Room</option>
@@ -1985,17 +1985,17 @@ export default class RoomScene extends Phaser.Scene {
 
         const editTextarea = document.createElement('textarea');
         editTextarea.value = entry.text;
-        editTextarea.style.cssText = 'width:100%;height:60px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem';
+        editTextarea.style.cssText = "width:100%;height:60px;padding:0.4rem 0.6rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.85rem;font-family:'Nunito',system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem";
         card.appendChild(editTextarea);
 
         const editRow = document.createElement('div');
         editRow.style.cssText = 'display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem';
         const saveBtn = document.createElement('button');
         saveBtn.textContent = 'Save';
-        saveBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+        saveBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = 'Cancel';
-        cancelBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#1a4a7f;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+        cancelBtn.style.cssText = 'padding:0.35rem 0.9rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
         const editStatus = document.createElement('span');
         editStatus.style.cssText = 'font-size:0.78rem';
         saveBtn.onclick = () => this._saveFeedbackEdit(entry.feedbackId, editSelect, editTextarea, saveBtn, editStatus);
@@ -2006,13 +2006,13 @@ export default class RoomScene extends Phaser.Scene {
         card.appendChild(editRow);
       } else {
         const text = document.createElement('div');
-        text.style.cssText = 'color:#e0e0e0;font-size:0.88rem;white-space:pre-wrap;margin-bottom:0.5rem';
+        text.style.cssText = 'color:#2D3047;font-size:0.88rem;white-space:pre-wrap;margin-bottom:0.5rem';
         text.textContent = entry.text;
         card.appendChild(text);
 
         if (entry.response) {
           const resp = document.createElement('div');
-          resp.style.cssText = 'background:#0d1b2e;border-left:3px solid #88ccff;padding:0.5rem 0.75rem;border-radius:4px;font-size:0.82rem;color:#ccc;white-space:pre-wrap';
+          resp.style.cssText = 'background:#FFFFFF;border-left:3px solid #2EC4B6;padding:0.5rem 0.75rem;border-radius:4px;font-size:0.82rem;color:#6E7191;white-space:pre-wrap';
           resp.textContent = `Creator's reply: ${entry.response}`;
           card.appendChild(resp);
         } else if (this._isRoomOwner && entry.source === 'online') {
@@ -2022,12 +2022,12 @@ export default class RoomScene extends Phaser.Scene {
           replyWrap.style.cssText = 'margin-top:0.5rem';
           const textarea = document.createElement('textarea');
           textarea.placeholder = 'Reply to this feedback...';
-          textarea.style.cssText = 'width:100%;height:50px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.4rem';
+          textarea.style.cssText = "width:100%;height:50px;padding:0.4rem 0.6rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.82rem;font-family:'Nunito',system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.4rem";
           const row = document.createElement('div');
           row.style.cssText = 'display:flex;align-items:center;gap:0.6rem';
           const btn = document.createElement('button');
           btn.textContent = 'Respond';
-          btn.style.cssText = 'padding:0.35rem 0.9rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
+          btn.style.cssText = 'padding:0.35rem 0.9rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.78rem';
           const status = document.createElement('span');
           status.style.cssText = 'font-size:0.78rem';
           btn.onclick = () => this._respondToFeedback(entry.feedbackId, textarea, btn, status);
@@ -2047,12 +2047,12 @@ export default class RoomScene extends Phaser.Scene {
     const response = textarea.value.trim();
     if (!response) {
       status.textContent = 'Write a reply first.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
     btn.disabled = true;
     status.textContent = 'Saving...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
     try {
       const idToken = await getFreshIdToken();
       const res = await fetch(apiUrl(`/api/feedback/${encodeURIComponent(feedbackId)}/respond`), {
@@ -2063,14 +2063,14 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       if (!res.ok) {
         status.textContent = data.error ?? 'Failed to save reply';
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         await this._refreshFeedback();
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -2108,12 +2108,12 @@ export default class RoomScene extends Phaser.Scene {
     const text = textareaEl.value.trim();
     if (!text) {
       status.textContent = 'Write something first.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
     btn.disabled = true;
     status.textContent = 'Saving...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
     try {
       const idToken = await getFreshIdToken();
       const res = await fetch(apiUrl(`/api/feedback/${encodeURIComponent(feedbackId)}/edit`), {
@@ -2124,7 +2124,7 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       if (!res.ok) {
         status.textContent = data.error ?? 'Failed to save';
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         this._feedbackEditingId = null;
@@ -2132,7 +2132,7 @@ export default class RoomScene extends Phaser.Scene {
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
@@ -2146,22 +2146,22 @@ export default class RoomScene extends Phaser.Scene {
 
     const buildForm = ({ heading, buttonLabel, source, disabledNote }) => {
       const box = document.createElement('div');
-      box.style.cssText = 'background:#0a2040;border:1px solid #1a4a7f;border-radius:6px;padding:0.85rem;margin-bottom:0.85rem';
+      box.style.cssText = 'background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.85rem;margin-bottom:0.85rem';
       const h = document.createElement('div');
-      h.style.cssText = 'color:#aaa;font-size:0.82rem;font-weight:600;margin-bottom:0.5rem';
+      h.style.cssText = 'color:#6E7191;font-size:0.82rem;font-weight:600;margin-bottom:0.5rem';
       h.textContent = heading;
       box.appendChild(h);
 
       if (disabledNote) {
         const note = document.createElement('p');
-        note.style.cssText = 'color:#666;font-style:italic;font-size:0.8rem;margin:0';
+        note.style.cssText = 'color:#6E7191;font-style:italic;font-size:0.8rem;margin:0';
         note.textContent = disabledNote;
         box.appendChild(note);
         return box;
       }
 
       const select = document.createElement('select');
-      select.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
+      select.style.cssText = 'width:100%;padding:0.4rem 0.6rem;background:#FFFFFF;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.82rem;margin-bottom:0.5rem;box-sizing:border-box';
       select.innerHTML = `
         <option value="">What's this about? (optional)</option>
         <option value="room">Room</option>
@@ -2172,14 +2172,14 @@ export default class RoomScene extends Phaser.Scene {
 
       const textarea = document.createElement('textarea');
       textarea.placeholder = 'Write your feedback...';
-      textarea.style.cssText = 'width:100%;height:60px;padding:0.4rem 0.6rem;background:#0d1b2e;border:1px solid #1a4a7f;border-radius:4px;color:#e0e0e0;font-size:0.85rem;font-family:system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem';
+      textarea.style.cssText = "width:100%;height:60px;padding:0.4rem 0.6rem;background:#FFFFFF;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.85rem;font-family:'Nunito',system-ui,sans-serif;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:0.5rem";
       box.appendChild(textarea);
 
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:0.6rem';
       const btn = document.createElement('button');
       btn.textContent = buttonLabel;
-      btn.style.cssText = 'padding:0.4rem 1rem;background:#88ccff;color:#0d1b2e;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem';
+      btn.style.cssText = 'padding:0.4rem 1rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem';
       const status = document.createElement('span');
       status.style.cssText = 'font-size:0.78rem';
       btn.onclick = () => this._submitFeedback(source, select, textarea, btn, status);
@@ -2210,12 +2210,12 @@ export default class RoomScene extends Phaser.Scene {
     const text = textarea.value.trim();
     if (!text) {
       status.textContent = 'Write something first.';
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       return;
     }
     btn.disabled = true;
     status.textContent = 'Saving...';
-    status.style.color = '#aaa';
+    status.style.color = '#6E7191';
     try {
       const idToken = await getFreshIdToken();
       const res = await fetch(apiUrl('/api/feedback'), {
@@ -2229,7 +2229,7 @@ export default class RoomScene extends Phaser.Scene {
       const data = await res.json();
       if (!res.ok) {
         status.textContent = data.error ?? 'Failed to submit feedback';
-        status.style.color = '#e07a7a';
+        status.style.color = '#B5401F';
         btn.disabled = false;
       } else {
         textarea.value = '';
@@ -2238,7 +2238,7 @@ export default class RoomScene extends Phaser.Scene {
       }
     } catch (e) {
       status.textContent = `Network error: ${e.message}`;
-      status.style.color = '#e07a7a';
+      status.style.color = '#B5401F';
       btn.disabled = false;
     }
   }
