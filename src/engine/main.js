@@ -19,8 +19,14 @@ const config = {
   parent: 'game-container',   // Phaser appends the canvas into the full-viewport div in index.html
 
   scale: {
-    mode: Phaser.Scale.FIT,             // Scale the 800x600 canvas up to fill the viewport, preserving aspect ratio
-    autoCenter: Phaser.Scale.CENTER_BOTH // Center it if the viewport aspect ratio doesn't match 4:3
+    // ENVELOP (not FIT): scales the 800x600 canvas up to fully cover the
+    // viewport — no letterbox bars on wide screens — cropping a bit of the
+    // top/bottom instead of pillarboxing the sides. Internal canvas stays a
+    // fixed 800x600 either way, which matters because student-submitted
+    // mini-games (GameScene) and room code are authored assuming that exact
+    // coordinate space; RESIZE mode would silently break their positioning.
+    mode: Phaser.Scale.ENVELOP,
+    autoCenter: Phaser.Scale.CENTER_BOTH
   },
 
   physics: {
