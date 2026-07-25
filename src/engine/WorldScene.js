@@ -15,6 +15,7 @@ import { getFreshIdToken, onSessionChange } from '../auth/session.js';
 import { signOutUser } from '../auth/googleAuth.js';
 import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
 import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
+import { apiUrl, wsUrl } from './serverUrl.js';
 import {
   WORLD_W, WORLD_H, CITY_W, CITY_H, CITY_X0, CITY_Y0,
   HUB_BOUNDS, PLOTS, SPAWN_POINT, STREET_PROPS,
@@ -29,8 +30,7 @@ const SPEED          = 160;
 const PORTAL_RADIUS  = 42;   // trigger distance for entering an active portal
 const CLAIM_RADIUS   = 90;   // trigger distance for showing the claim hint
 
-const protocol   = window.location.protocol === 'https:' ? 'wss' : 'ws';
-const SERVER_URL = `${protocol}://${window.location.host}`;
+const SERVER_URL = wsUrl();
 
 export default class WorldScene extends Phaser.Scene {
   constructor() {
@@ -134,7 +134,7 @@ export default class WorldScene extends Phaser.Scene {
     if (this._fetchingPortals) return;
     this._fetchingPortals = true;
     try {
-      const res   = await fetch('/api/portal-slots');
+      const res   = await fetch(apiUrl('/api/portal-slots'));
       const { slots } = await res.json();
 
       // Dynamically import room modules for active slots
@@ -145,7 +145,7 @@ export default class WorldScene extends Phaser.Scene {
             // ?v=roomVersion busts the browser's ES module cache — updates
             // reuse the same fileName, so without this an approved update
             // never reaches players who already imported the old version.
-            const url = '/rooms/' + slot.fileName + (slot.roomVersion ? `?v=${slot.roomVersion}` : '');
+            const url = apiUrl('/rooms/' + slot.fileName + (slot.roomVersion ? `?v=${slot.roomVersion}` : ''));
             slot.roomModule = await import(/* @vite-ignore */ url);
           } catch (e) {
             console.warn('[WorldScene] Could not load room:', slot.fileName, e.message);
@@ -563,7 +563,7 @@ export default class WorldScene extends Phaser.Scene {
     // this signed-in player is currently invited to an active in-person
     // session; if so, join that instead of 'world'.
     getFreshIdToken()
-      .then(idToken => fetch('/api/session/mine', {
+      .then(idToken => fetch(apiUrl('/api/session/mine'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
@@ -1037,7 +1037,7 @@ export default class WorldScene extends Phaser.Scene {
     this._claimOverlayEl = el;
     document.getElementById('woc-claim-cancel').onclick = () => this._closeClaimOverlay();
     document.getElementById('woc-claim-submit').onclick = () => this._submitClaim();
-    wireShareCheckbox('claim', () => this._claimCreationMeta?.creationKey ?? null);
+    wireShareCheckbox('claim', () => this._claimCreationMeta);
   }
 
   async _openClaimOverlay(slotKey, isUpdate = false) {
@@ -1093,7 +1093,7 @@ export default class WorldScene extends Phaser.Scene {
     status.style.color = '#aaa';
 
     try {
-      const res  = await fetch('/api/submit', {
+      const res  = await fetch(apiUrl('/api/submit'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1246,7 +1246,7 @@ export default class WorldScene extends Phaser.Scene {
     if (!panel) return;
     panel.textContent = 'Loading...';
     try {
-      const res  = await fetch('/api/players/online');
+      const res  = await fetch(apiUrl('/api/players/online'));
       const data = await res.json();
       const players = data.players ?? [];
       panel.innerHTML = '';

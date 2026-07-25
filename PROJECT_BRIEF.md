@@ -854,7 +854,7 @@ Goal: a page showing one player's character, creations, Creative Process Logs, a
 
 ---
 
-### PHASE 17 — DEPLOYMENT (PLANNED, was Phase 16, was Phase 10 originally — renumbered twice)
+### PHASE 17 — DEPLOYMENT (code complete 2026-07-25, awaiting owner's manual Railway/Firebase steps — was Phase 16, was Phase 10 originally — renumbered twice)
 
 Goal: Deploy frontend to Firebase Hosting (`yourapp.web.app`) and Colyseus to Railway.
 
@@ -863,19 +863,92 @@ Architecture:
 - Railway → Colyseus Node server (persistent WebSocket)
 - Firebase Auth + Firestore → already cloud-hosted
 
-New files: `firebase.json`, `.firebaserc`, `railway.json`, `.env.local` (git-ignored), `.env.production`
+**What exploration found already satisfied this, unchanged, correcting a
+few things this section originally got wrong before any code existed:**
+- Service account is loaded from `FIREBASE_SERVICE_ACCOUNT_JSON`
+  (`server/index.js`), not `FIREBASE_SERVICE_ACCOUNT` as originally
+  written here — that's the real env var name to set on Railway.
+- CORS was already wide open (`Access-Control-Allow-Origin: *`,
+  `server/index.js`, added earlier for Codespaces' own cross-origin
+  ports) and needed no change — every mutating endpoint authenticates via
+  a Firebase ID token carried explicitly in the request body, not an
+  ambient cookie, so a permissive origin doesn't introduce CSRF exposure.
+- `vite.config.js`'s dev proxy only ever applies to `vite dev`/`vite
+  preview` by Vite's own design — it already has zero effect on `vite
+  build`'s static output, so no change was needed there either, despite
+  this section originally listing it as a "key change."
+- `admin.html` is served directly by Express from disk
+  (`res.sendFile`) and isn't referenced by `index.html` or bundled by
+  Vite — it stays on the Railway origin forever, so none of its ~20
+  relative `fetch()` calls needed touching.
 
-Key changes:
-- `vite.config.js` — proxy only active in dev; production reads `VITE_COLYSEUS_URL`
-- `server/index.js` — CORS for Firebase Hosting domain; service account from env var
-- `package.json` — add `"deploy": "vite build && firebase deploy --only hosting"` script
+**What actually needed to change (the real bulk of the work — every
+player-facing scene assumed same-origin via the dev proxy):** a new
+shared module, `src/engine/serverUrl.js`, exporting `apiUrl(path)` (returns
+`path` unchanged when `VITE_COLYSEUS_URL` is unset — dev, zero behavior
+change — otherwise prefixes it) and `wsUrl()` (same idea for the Colyseus
+websocket, http→ws / https→wss). Wired into every one of the ~30
+`fetch()`/dynamic-`import()` call sites across `WorldScene.js`,
+`RoomScene.js` (the biggest, ~17 sites), `creationSharing.js`,
+`LoginScene.js`, `CharacterScene.js`, `CharacterRenderer.js`, and
+`ProfileScene.js`. One real bug caught before it shipped:
+`CharacterRenderer.js` is deliberately server-safe (imported by
+`server/index.js` for `sanitizeConfig`, running under plain Node), and
+`import.meta.env` doesn't exist under Node at all — `serverUrl.js`
+originally read `import.meta.env.VITE_COLYSEUS_URL` (only the property
+access guarded, not `import.meta.env` itself), which would have thrown
+and crashed the server at boot the moment `CharacterRenderer.js` was
+imported. Fixed by optional-chaining `import.meta.env?.` too, confirmed
+by restarting the server and watching it boot clean.
+- `server/index.js` — `PORT` now reads `process.env.PORT || 2567` (Railway
+  assigns its own port); boot log no longer hardcodes "localhost".
+- New files: `firebase.json` (`hosting.public: "dist"`, SPA rewrite),
+  `.firebaserc` (`default` project `impactground`, from Phase 8's M0
+  setup), `railway.json` (`startCommand: "node server/index.js"` —
+  deliberately not `npm start`, which also spins up a dev-only `vite
+  dev` server that has no place in production).
+- `package.json` — added `"deploy": "vite build && npx firebase-tools
+  deploy --only hosting"` (`npx` avoids a committed `firebase-tools`
+  dependency for one script).
+- **`.env.production` was deliberately not created**, unlike this
+  section's original plan — Phase 8's M0 setup already established the
+  convention of storing client Firebase config as GitHub Codespaces
+  secrets rather than a local `.env` file specifically so it survives
+  Codespace deletion, and these are already live as process env vars in
+  this Codespace with zero `.env` file present. The one new var,
+  `VITE_COLYSEUS_URL`, follows the same convention (see step 3 below)
+  instead of introducing a second, competing way to configure the same
+  kind of value. `.env.example` (already existed from Phase 8, git-
+  committed, safe — no secrets) gained a `VITE_COLYSEUS_URL=` line
+  documenting it for anyone setting up outside this Codespace.
+
+**Verification done in this session:** `node --check server/index.js`;
+`vite build` with `VITE_COLYSEUS_URL` unset succeeds and produces the
+same `dist/` shape as before (proves `apiUrl`/`wsUrl` are true no-ops
+when unset); restarted both the Colyseus server and Vite dev server and
+confirmed clean boot with no errors, and confirmed via `curl` that
+`import.meta.env` in dev has no `VITE_COLYSEUS_URL` key (as expected,
+since it isn't set anywhere yet). **Live in-browser golden-path
+click-through (login with a second/fresh Google account → CharacterScene
+→ ProfileScene → WorldScene → enter a room → submit → admin approve) was
+completed and verified by the owner (2026-07-25)** — no regressions from
+the ~30 mechanically-edited call sites. **Still outstanding:** full
+end-to-end production verification (a real Firebase Hosting URL talking
+to a real Railway backend) — this can't happen until the owner completes
+the manual steps below and actually deploys.
 
 Manual one-time steps (owner):
-1. Create Firebase project, enable Google Auth, create Firestore DB
-2. Download service account JSON → set as Railway env var `FIREBASE_SERVICE_ACCOUNT`
-3. `firebase login && firebase init hosting`
-4. Deploy Colyseus to Railway via GitHub integration
-5. Set `VITE_COLYSEUS_URL` in Railway env vars pointing to Railway URL
+1. Create a Railway project from this GitHub repo (start command is
+   already set via the committed `railway.json`).
+2. Add `FIREBASE_SERVICE_ACCOUNT_JSON` as a Railway env var — same JSON
+   value already stored as a Codespaces secret.
+3. Once Railway assigns a domain, add `VITE_COLYSEUS_URL` as a new
+   GitHub Codespaces secret (same mechanism as the existing
+   `VITE_FIREBASE_*` ones) pointing at that Railway URL, then restart
+   the Codespace (or re-export it in the current shell) so `vite build`
+   picks it up.
+4. `npx firebase-tools login` once, then `npm run deploy` from this
+   Codespace.
 
 ---
 
@@ -904,8 +977,8 @@ a full baseline draft first, then sweep this list at the end.
 - `linkedArtifacts` support on interactive objects — decorative-only today; an object's own `onInteract` can already `window.open()` a link itself if the author wants that (Phase 11)
 - Interactive-object code sharing/remix (Phase 13) — would need (1) an edit/reopen flow for interactive objects (same gap as above, since sharing requires something to toggle after approval) and (2) an identifying label for an object, since objects have no `name` field today the way rooms do (the remix picker currently falls back to a version's description or "object by &lt;displayName&gt;")
 
-**Already built, not yet live-verified (testing deferred, not scope):**
-- Game and music sharing/remix (Phase 13) — implemented identically to room sharing (same `buildSharingFieldsHTML`/`wireShareCheckbox` code path, no `includeShare:false` exclusion), `curl`-verified server-side, but only room sharing has been walked through live in-browser so far. Owner's explicit call: keep the feature as built, just verify it whenever convenient rather than stripping it back to room-only.
+**Resolved (2026-07-25):**
+- Game and music sharing/remix (Phase 13) — live-verified in-browser by the owner: share checkbox, the "based on" remix dropdown picking up the shared creation, and a full remix+submit round-trip, for both game and music (room sharing was already verified in Phase 13 itself). One real bug found and fixed during this pass: `GET /api/creation-meta` synthesizes a `creationKey` for a slot that's never been approved yet (so the "based on" dropdown/version picker have something to key off), but the share checkbox's live-toggle handler treated any truthy key as ready-to-share and called `POST /api/creation-meta/share`, which correctly 404s ("No approved creation found for that key yet") since nothing exists server-side to toggle — surfaced as a confusing raw 404 message instead of blocking the checkbox outright. Fixed by changing the design rather than just hiding the error: the checkbox can now be checked *before* approval too, recorded as `shareOnApproval` in `readSharingFields()`'s return (`src/engine/creationSharing.js`), carried through `/api/submit`'s existing `meta` field, and applied once in `/admin/approve` (`server/index.js`) only on a creationKey's first-ever approval (`existingMeta` null) — later resubmissions don't reapply it, since the standalone share toggle is the sole source of truth for `shared` once something has been approved at least once. `wireShareCheckbox()` now takes the full creationMeta object (not just the key) so it can tell "never approved" (`versions.length === 0`, show "Will share automatically once this is approved") from "already approved" (live-toggle as before).
 
 ---
 

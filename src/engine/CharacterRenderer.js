@@ -11,6 +11,8 @@
 // parameter rather than importing Phaser directly, so this file stays safe
 // to import server-side too.
 
+import { apiUrl } from './serverUrl.js';
+
 const MAX_SHAPES  = 20;
 const MIN_SCALE    = 0.8;
 const MAX_SCALE    = 1.3;
@@ -179,7 +181,7 @@ const configCache = new Map();
 
 export function fetchCharacterConfig(uid) {
   if (!configCache.has(uid)) {
-    const promise = fetch('/api/character/' + uid)
+    const promise = fetch(apiUrl('/api/character/' + uid))
       .then(res => res.json())
       .then(data => data.characterConfig ?? null)
       .catch(() => null);

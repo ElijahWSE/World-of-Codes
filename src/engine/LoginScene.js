@@ -3,6 +3,7 @@
 import Phaser from 'phaser';
 import { signInWithGoogle } from '../auth/googleAuth.js';
 import { getFreshIdToken } from '../auth/session.js';
+import { apiUrl } from './serverUrl.js';
 
 export default class LoginScene extends Phaser.Scene {
   constructor() {
@@ -47,7 +48,7 @@ export default class LoginScene extends Phaser.Scene {
       await signInWithGoogle();
       const idToken = await getFreshIdToken();
       status.textContent = 'Verifying...';
-      const res  = await fetch('/api/auth/verify', {
+      const res  = await fetch(apiUrl('/api/auth/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),

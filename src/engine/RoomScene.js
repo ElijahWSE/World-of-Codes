@@ -16,6 +16,7 @@ import { createCharacter, updateCharacter, fetchCharacterConfig } from './Charac
 import { createObject, updateObject, setObjectConfig, OBJECT_LIMITS } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
 import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
+import { apiUrl } from './serverUrl.js';
 
 const SPEED  = 160;  // pixels per second — same as WorldScene
 const ROOM_W = 1600; // world width — same as the town square
@@ -481,7 +482,7 @@ export default class RoomScene extends Phaser.Scene {
         // vite-ignore: dynamic path (user-submitted game file).
         // ?v=gameVersion busts the browser's ES module cache — see the
         // matching comment in WorldScene._fetchAndDrawPortals().
-        const url = '/rooms/' + this._gameFileName + (this._gameVersion ? `?v=${this._gameVersion}` : '');
+        const url = apiUrl('/rooms/' + this._gameFileName + (this._gameVersion ? `?v=${this._gameVersion}` : ''));
         this._gameModule = await import(/* @vite-ignore */ url);
       } catch (e) {
         console.warn('[RoomScene] Could not load game file:', this._gameFileName, e.message);
@@ -504,7 +505,7 @@ export default class RoomScene extends Phaser.Scene {
   async _refreshGameModule() {
     if (this._gameModule?.game || !this._roomKey) return;
     try {
-      const res  = await fetch('/api/portal-slots');
+      const res  = await fetch(apiUrl('/api/portal-slots'));
       const { slots } = await res.json();
       const slot = slots.find(s => s.key === this._roomKey);
       if (slot?.gameFileName && slot.gameVersion !== this._gameVersion) {
@@ -525,7 +526,7 @@ export default class RoomScene extends Phaser.Scene {
     try {
       // ?v=musicVersion busts the browser's ES module cache — same reason
       // as the game/room cache-busting elsewhere in this file.
-      const url = '/rooms/' + this._musicFileName + (this._musicVersion ? `?v=${this._musicVersion}` : '');
+      const url = apiUrl('/rooms/' + this._musicFileName + (this._musicVersion ? `?v=${this._musicVersion}` : ''));
       this._musicModule = await import(/* @vite-ignore */ url);
       try { this._musicModule?.music?.play(this); } catch (err) {
         console.error('[RoomScene] music.play threw:', err);
@@ -542,7 +543,7 @@ export default class RoomScene extends Phaser.Scene {
   async _refreshMusicModule() {
     if (!this._roomKey) return;
     try {
-      const res  = await fetch('/api/portal-slots');
+      const res  = await fetch(apiUrl('/api/portal-slots'));
       const { slots } = await res.json();
       const slot = slots.find(s => s.key === this._roomKey);
       if (slot?.musicFileName && slot.musicVersion !== this._musicVersion) {
@@ -563,7 +564,7 @@ export default class RoomScene extends Phaser.Scene {
   async _checkOwnership() {
     if (!this._roomKey || !this._playerUid) return;
     try {
-      const res   = await fetch('/api/portal-slots');
+      const res   = await fetch(apiUrl('/api/portal-slots'));
       const { slots } = await res.json();
       const slot  = slots.find(s => s.key === this._roomKey);
       this._isRoomOwner = !!(slot?.uid && slot.uid === this._playerUid);
@@ -607,7 +608,7 @@ export default class RoomScene extends Phaser.Scene {
     if (!id) return;
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch(`/api/objects/${id}/move`, {
+      const res = await fetch(apiUrl(`/api/objects/${id}/move`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, x: Math.round(x), y: Math.round(y) }),
@@ -630,7 +631,7 @@ export default class RoomScene extends Phaser.Scene {
     if (!window.confirm('Delete this object? This cannot be undone.')) return;
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch(`/api/objects/${entry.data.id}`, {
+      const res = await fetch(apiUrl(`/api/objects/${entry.data.id}`), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
@@ -652,7 +653,7 @@ export default class RoomScene extends Phaser.Scene {
   async _fetchAndDrawObjects() {
     if (!this._roomKey) return;
     try {
-      const res = await fetch('/api/objects?slotKey=' + encodeURIComponent(this._roomKey));
+      const res = await fetch(apiUrl('/api/objects?slotKey=' + encodeURIComponent(this._roomKey)));
       const { objects } = await res.json();
 
       for (const [id, entry] of this._objectContainers) {
@@ -680,7 +681,7 @@ export default class RoomScene extends Phaser.Scene {
         if (obj.subKind === 'interactive') {
           if (entry) continue; // already loaded — interactive objects are create-only, nothing to diff/redraw
           try {
-            const mod = await import(/* @vite-ignore */ '/objects/' + obj.fileName + '?v=' + (obj.updatedAt || obj.createdAt));
+            const mod = await import(/* @vite-ignore */ apiUrl('/objects/' + obj.fileName + '?v=' + (obj.updatedAt || obj.createdAt)));
             const ctx = { x: obj.x, y: obj.y, id: obj.id };
             mod.onLoad?.(this);
             mod.onCreate(this, ctx);
@@ -971,7 +972,7 @@ export default class RoomScene extends Phaser.Scene {
     this._gameOverlayEl = el;
     document.getElementById('woc-game-cancel').onclick = () => this._closeGameOverlay();
     document.getElementById('woc-game-submit').onclick = () => this._submitGameCode();
-    wireShareCheckbox('game', () => this._gameCreationMeta?.creationKey ?? null);
+    wireShareCheckbox('game', () => this._gameCreationMeta);
   }
 
   async _openGameOverlay() {
@@ -1010,7 +1011,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
 
     try {
-      const res  = await fetch('/api/submit', {
+      const res  = await fetch(apiUrl('/api/submit'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1206,7 +1207,7 @@ export default class RoomScene extends Phaser.Scene {
 
     try {
       const idToken = await getFreshIdToken();
-      const url  = editingId ? `/api/objects/${editingId}/edit` : '/api/objects/decorative';
+      const url  = apiUrl(editingId ? `/api/objects/${editingId}/edit` : '/api/objects/decorative');
       const body = editingId
         ? { idToken, shapeConfig, linkedArtifacts }
         : { idToken, slotKey: this._roomKey, x: this._pendingObjectX, y: this._pendingObjectY, shapeConfig, linkedArtifacts };
@@ -1250,7 +1251,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
 
     try {
-      const res = await fetch('/api/submit', {
+      const res = await fetch(apiUrl('/api/submit'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1318,7 +1319,7 @@ export default class RoomScene extends Phaser.Scene {
     this._musicOverlayEl = el;
     document.getElementById('woc-music-cancel').onclick = () => this._closeMusicOverlay();
     document.getElementById('woc-music-submit').onclick = () => this._submitMusicCode();
-    wireShareCheckbox('music', () => this._musicCreationMeta?.creationKey ?? null);
+    wireShareCheckbox('music', () => this._musicCreationMeta);
   }
 
   async _openMusicOverlay() {
@@ -1357,7 +1358,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
 
     try {
-      const res  = await fetch('/api/submit', {
+      const res  = await fetch(apiUrl('/api/submit'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1731,7 +1732,7 @@ export default class RoomScene extends Phaser.Scene {
     pastEl.value = presentEl.value = futureEl.value = 'Loading...';
 
     try {
-      const res  = await fetch(`/api/process-log?slotKey=${encodeURIComponent(this._roomKey)}`);
+      const res  = await fetch(apiUrl(`/api/process-log?slotKey=${encodeURIComponent(this._roomKey)}`));
       const data = await res.json();
       pastEl.value    = data.past    || (this._isRoomOwner ? '' : '(Nothing written yet.)');
       presentEl.value = data.present || (this._isRoomOwner ? '' : '(Nothing written yet.)');
@@ -1762,7 +1763,7 @@ export default class RoomScene extends Phaser.Scene {
 
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch('/api/process-log', {
+      const res = await fetch(apiUrl('/api/process-log'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, slotKey: this._roomKey, past, present, future }),
@@ -1834,7 +1835,7 @@ export default class RoomScene extends Phaser.Scene {
     const listEl = document.getElementById('woc-feedback-list');
     listEl.textContent = 'Loading...';
     try {
-      const res  = await fetch(`/api/feedback?slotKey=${encodeURIComponent(this._roomKey)}`);
+      const res  = await fetch(apiUrl(`/api/feedback?slotKey=${encodeURIComponent(this._roomKey)}`));
       const data = await res.json();
       this._feedbackEntries = data.feedback ?? [];
       this._renderFeedbackList(this._feedbackEntries);
@@ -2054,7 +2055,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/respond`, {
+      const res = await fetch(apiUrl(`/api/feedback/${encodeURIComponent(feedbackId)}/respond`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, response }),
@@ -2082,7 +2083,7 @@ export default class RoomScene extends Phaser.Scene {
     status.textContent = '';
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/archive`, {
+      const res = await fetch(apiUrl(`/api/feedback/${encodeURIComponent(feedbackId)}/archive`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, archived }),
@@ -2115,7 +2116,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch(`/api/feedback/${encodeURIComponent(feedbackId)}/edit`, {
+      const res = await fetch(apiUrl(`/api/feedback/${encodeURIComponent(feedbackId)}/edit`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, about: selectEl.value || null, text }),
@@ -2217,7 +2218,7 @@ export default class RoomScene extends Phaser.Scene {
     status.style.color = '#aaa';
     try {
       const idToken = await getFreshIdToken();
-      const res = await fetch('/api/feedback', {
+      const res = await fetch(apiUrl('/api/feedback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

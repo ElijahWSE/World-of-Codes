@@ -1444,10 +1444,15 @@ const gameServer = new Server({
           description: String(sub.meta?.versionDescription ?? '').trim().slice(0, 200),
           displayName: sub.displayName, uid: sub.uid ?? null, createdAt: Date.now(), code: sub.code,
         });
+        // shareOnApproval only applies the first time a creationKey is ever
+        // approved (existingMeta is null) — once approved once, the standalone
+        // /api/creation-meta/share toggle is the only way to change `shared`,
+        // so a later resubmission's checkbox state (already applied live via
+        // that toggle) shouldn't be reapplied here.
         await persistCreationMeta({
           creationKey, kind: sub.kind, slotKey: sub.slotKey,
           ownerUid: sub.uid ?? existingMeta?.ownerUid ?? null,
-          shared: existingMeta?.shared ?? false,
+          shared: existingMeta ? existingMeta.shared : !!sub.meta?.shareOnApproval,
           remixedFrom: sub.meta?.remixedFrom !== undefined ? sub.meta.remixedFrom : (existingMeta?.remixedFrom ?? null),
           versions,
         });
@@ -1540,7 +1545,7 @@ const gameServer = new Server({
 gameServer.define('world', WorldRoom);
 gameServer.define('session', SessionRoom).filterBy(['sessionDocId']);
 
-const PORT = 2567;
+const PORT = process.env.PORT || 2567;
 gameServer.listen(PORT).then(() => {
-  console.log(`[Colyseus] Listening on ws://localhost:${PORT}`);
+  console.log(`[Colyseus] Listening on port ${PORT}`);
 });

@@ -10,6 +10,7 @@
 import Phaser from 'phaser';
 import { createCharacter, updateCharacter } from './CharacterRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
+import { apiUrl } from './serverUrl.js';
 
 const PREVIEW_X = 610;
 const PREVIEW_Y = 360;
@@ -205,7 +206,7 @@ export default class CharacterScene extends Phaser.Scene {
 
     try {
       const idToken = await getFreshIdToken();
-      const res  = await fetch('/api/auth/save-character', {
+      const res  = await fetch(apiUrl('/api/auth/save-character'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, config: parsed }),

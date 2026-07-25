@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "start": "concurrently \"npm run dev\" \"npm run server\""
+    "start": "concurrently \"npm run dev\" \"npm run server\"",
+    "deploy": "vite build && npx firebase-tools deploy --only hosting"
   },
   "dependencies": {
     "@colyseus/schema": "^4.0.19",

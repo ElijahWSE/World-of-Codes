@@ -30,6 +30,7 @@
 // kept as two separate objects below, not merged.
 import Phaser from 'phaser';
 import { createCharacter, updateCharacter } from './CharacterRenderer.js';
+import { apiUrl } from './serverUrl.js';
 
 // Left-of-panel, in Phaser's internal 800x600 space — the DOM panel below
 // covers the right ~440 real px, so this is centered in what's roughly the
@@ -133,8 +134,8 @@ export default class ProfileScene extends Phaser.Scene {
   async _loadProfile() {
     const statusEl = document.getElementById('woc-profile-status');
     try {
-      const url = `/api/profile/${encodeURIComponent(this._targetUid)}` +
-        (this._self.uid ? `?viewerUid=${encodeURIComponent(this._self.uid)}` : '');
+      const url = apiUrl(`/api/profile/${encodeURIComponent(this._targetUid)}` +
+        (this._self.uid ? `?viewerUid=${encodeURIComponent(this._self.uid)}` : ''));
       const res  = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Could not load profile');

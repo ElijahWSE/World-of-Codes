@@ -9,15 +9,16 @@
 // Does NOT apply to decorative objects — they're pure JSON, never touch
 // /api/submit, and never get a creationMeta entry server-side.
 import { getFreshIdToken } from '../auth/session.js';
+import { apiUrl } from './serverUrl.js';
 
 export async function fetchCreationMeta(kind, slotKey) {
-  const res = await fetch(`/api/creation-meta?kind=${encodeURIComponent(kind)}&slotKey=${encodeURIComponent(slotKey)}`);
+  const res = await fetch(apiUrl(`/api/creation-meta?kind=${encodeURIComponent(kind)}&slotKey=${encodeURIComponent(slotKey)}`));
   return res.json();
 }
 
 export async function fetchSharedCreations() {
   try {
-    const res  = await fetch('/api/creations/shared');
+    const res  = await fetch(apiUrl('/api/creations/shared'));
     const data = await res.json();
     return data.creations ?? [];
   } catch {
@@ -27,7 +28,7 @@ export async function fetchSharedCreations() {
 
 export async function setShared(creationKey, shared) {
   const idToken = await getFreshIdToken();
-  const res = await fetch('/api/creation-meta/share', {
+  const res = await fetch(apiUrl('/api/creation-meta/share'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken, creationKey, shared }),
@@ -126,34 +127,42 @@ export async function refreshSharingFields(prefix, kind, slotKey) {
 export function readSharingFields(prefix) {
   const versionDescription = document.getElementById(`woc-${prefix}-versiondesc`)?.value.trim() ?? '';
   const remixedFrom = document.getElementById(`woc-${prefix}-basedon`)?.value || null;
+  const shareOnApproval = document.getElementById(`woc-${prefix}-share`)?.checked ?? false;
   const pickerBox = document.getElementById(`woc-${prefix}-versionpicker`);
   if (pickerBox && pickerBox.style.display !== 'none') {
     const chosen = document.querySelector(`input[name="woc-${prefix}-dropversion"]:checked`);
     if (!chosen) return null;
-    return { versionDescription, remixedFrom, dropVersionId: chosen.value };
+    return { versionDescription, remixedFrom, dropVersionId: chosen.value, shareOnApproval };
   }
-  return { versionDescription, remixedFrom, dropVersionId: null };
+  return { versionDescription, remixedFrom, dropVersionId: null, shareOnApproval };
 }
 
 // Wires the share checkbox (if the overlay has one) to toggle immediately,
-// independent of code submission. `getCreationKey` reads back whatever
-// refreshSharingFields() last returned (stashed by the caller), since a
-// brand-new submission has no creationKey until it's approved.
-export function wireShareCheckbox(prefix, getCreationKey) {
+// independent of code submission — but only once something has actually been
+// approved (a creationMeta doc with at least one version exists). Before
+// that, GET /api/creation-meta still returns a synthetic {creationKey,
+// versions: []} so the "based on" dropdown/version picker have something to
+// key off, but POST /api/creation-meta/share 404s on it since there's
+// nothing to toggle server-side yet. So pre-approval, checking the box just
+// records intent locally — readSharingFields() carries it into /api/submit's
+// `meta.shareOnApproval`, and /admin/approve applies it on first approval
+// only (see server/index.js). `getMeta` reads back whatever
+// refreshSharingFields() last returned (stashed by the caller).
+export function wireShareCheckbox(prefix, getMeta) {
   const checkbox = document.getElementById(`woc-${prefix}-share`);
   const status = document.getElementById(`woc-${prefix}-share-status`);
   if (!checkbox) return;
   checkbox.onchange = async () => {
-    const creationKey = getCreationKey();
-    if (!creationKey) {
-      status.textContent = 'Submit at least one approved version first to enable sharing.';
-      status.style.color = '#e07a7a';
-      checkbox.checked = !checkbox.checked;
+    const meta = getMeta();
+    const hasApprovedVersion = (meta?.versions?.length ?? 0) > 0;
+    if (!hasApprovedVersion) {
+      status.textContent = checkbox.checked ? 'Will share automatically once this is approved.' : '';
+      status.style.color = '#8fa8c9';
       return;
     }
     checkbox.disabled = true;
     try {
-      const data = await setShared(creationKey, checkbox.checked);
+      const data = await setShared(meta.creationKey, checkbox.checked);
       if (data.ok) {
         status.textContent = checkbox.checked ? '✓ Shared — others can pick this as a remix source.' : 'Sharing turned off.';
         status.style.color = '#52b788';
