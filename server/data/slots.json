@@ -72,7 +72,23 @@
     "uid": "6EHvKQewrmdEemg5VMUc0pKvdOk1",
     "gameFileName": "game-slot45.js",
     "musicFileName": "music-slot45.js",
-    "musicVersion": 1784554407020,
+    "musicVersion": 1784970626636,
     "roomVersion": 1784642424242
+  },
+  "slot32": {
+    "fileName": "worldcup-test-1.js",
+    "roomName": "Worldcup Test 1",
+    "claimedBy": "Worldcup Test 1",
+    "uid": "6EHvKQewrmdEemg5VMUc0pKvdOk1",
+    "roomVersion": 1784970911880,
+    "musicFileName": "music-slot32.js",
+    "musicVersion": 1784971011672
+  },
+  "slot14": {
+    "fileName": "japanese-cafe-snails.js",
+    "roomName": "Japanese Cafe Snails",
+    "claimedBy": "Japanese Cafe Snails",
+    "uid": "xwz1UzoZR6c4poBLrinangKTEXn1",
+    "roomVersion": 1784972395962
   }
 }
