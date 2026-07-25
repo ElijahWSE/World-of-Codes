@@ -9,7 +9,7 @@ import express from 'express';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 import admin from 'firebase-admin';
 import { getKind } from '../src/creation-kinds/index.js';
@@ -234,7 +234,7 @@ function checkSyntax(code) {
   const tmp = join(tmpdir(), `woc_check_${Date.now()}.mjs`);
   try {
     writeFileSync(tmp, code, 'utf8');
-    execSync(`node --check "${tmp}"`, { stdio: 'pipe' });
+    execFileSync(process.execPath, ['--check', tmp], { stdio: 'pipe' });
     return null;
   } catch (e) {
     const raw = (e.stderr?.toString() || e.message || '').replace(tmp, 'room.js');
