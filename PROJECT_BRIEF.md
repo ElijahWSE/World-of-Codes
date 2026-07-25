@@ -854,7 +854,7 @@ Goal: a page showing one player's character, creations, Creative Process Logs, a
 
 ---
 
-### PHASE 17 — DEPLOYMENT (code complete 2026-07-25, awaiting owner's manual Railway/Firebase steps — was Phase 16, was Phase 10 originally — renumbered twice)
+### PHASE 17 — DEPLOYMENT (✅ fully complete and closed out 2026-07-25 — was Phase 16, was Phase 10 originally — renumbered twice)
 
 Goal: Deploy frontend to Firebase Hosting (`yourapp.web.app`) and Colyseus to Railway.
 
@@ -932,23 +932,50 @@ since it isn't set anywhere yet). **Live in-browser golden-path
 click-through (login with a second/fresh Google account → CharacterScene
 → ProfileScene → WorldScene → enter a room → submit → admin approve) was
 completed and verified by the owner (2026-07-25)** — no regressions from
-the ~30 mechanically-edited call sites. **Still outstanding:** full
-end-to-end production verification (a real Firebase Hosting URL talking
-to a real Railway backend) — this can't happen until the owner completes
-the manual steps below and actually deploys.
+the ~30 mechanically-edited call sites.
 
-Manual one-time steps (owner):
-1. Create a Railway project from this GitHub repo (start command is
-   already set via the committed `railway.json`).
-2. Add `FIREBASE_SERVICE_ACCOUNT_JSON` as a Railway env var — same JSON
-   value already stored as a Codespaces secret.
-3. Once Railway assigns a domain, add `VITE_COLYSEUS_URL` as a new
-   GitHub Codespaces secret (same mechanism as the existing
-   `VITE_FIREBASE_*` ones) pointing at that Railway URL, then restart
-   the Codespace (or re-export it in the current shell) so `vite build`
-   picks it up.
-4. `npx firebase-tools login` once, then `npm run deploy` from this
-   Codespace.
+**Manual deploy steps completed (2026-07-25):** Railway project created
+from the GitHub repo, `FIREBASE_SERVICE_ACCOUNT_JSON` added as a Railway
+variable, public domain generated
+(`world-of-codes-production.up.railway.app`), `VITE_COLYSEUS_URL` added
+as a new GitHub Codespaces secret and picked up after a Codespace
+restart, `npx firebase-tools login` completed, `npm run deploy` run
+successfully — live at `impactground.web.app`.
+
+**Full end-to-end production verification: ✅ done, live-verified by the
+owner (2026-07-25).** A real room-submission click-through against the
+deployed Railway backend surfaced one real bug: `checkSyntax()`
+(`server/index.js`) used `execSync('node --check ...')`, which resolves
+`node` via `$PATH` in a spawned `/bin/sh` — Railway's Nixpacks container
+runs the app by invoking node's binary path directly and doesn't expose
+that path to subshells, so every submission failed server-side with
+`/bin/sh: 1: node: not found` despite the app itself running fine. Fixed
+by switching to `execFileSync(process.execPath, ['--check', tmp])`,
+which invokes the exact running Node binary directly with no shell/PATH
+involved. Committed as `e982b28`, redeployed, re-verified working by the
+owner.
+
+**Additional polish done in the same session, beyond Phase 17's original
+deployment scope:** browser-tab title renamed "World of Codes" →
+"ImpactGround" across `index.html`/`LoginScene.js`/`admin.html`
+(`3c04f62`); full visual re-theme from the dark-navy palette to a sunny
+"Risa" pastel palette (`#FFD84D`/`#FF7A59`/`#2EC4B6`/`#F7F7FF`/`#2D3047`)
+across all DOM-overlay windows — Lilita One for the login wordmark,
+Fredoka for panel headings, Nunito for body text, Space Mono for code
+previews — Phaser canvas/game-world rendering deliberately left
+untouched (`dc31fb6`); and a full-viewport canvas fix — `Phaser.Scale.
+ENVELOP` first (removed letterbox bars but over-zoomed/blurred the view,
+`be42114`), then superseded by `Phaser.Scale.RESIZE` (`7d6e73e`), which
+renders the canvas at the browser's actual pixel resolution so the
+town-square/room camera shows a wider field of view at native (unblurred)
+scale — with `GameScene`'s own camera explicitly pinned to a centered,
+fixed 800x600 viewport since student-submitted mini-games are authored
+assuming that exact literal screen-space coordinate system and have no
+scrolling camera of their own (unlike rooms/the town square, which are
+world-space + camera-follow and were unaffected).
+
+**This was the last phase in the Phases 1–17 baseline draft — now fully
+complete. Only the Deferred Follow-Ups sweep (below) remains.**
 
 ---
 
