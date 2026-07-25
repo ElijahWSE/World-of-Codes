@@ -19,14 +19,19 @@ const config = {
   parent: 'game-container',   // Phaser appends the canvas into the full-viewport div in index.html
 
   scale: {
-    // ENVELOP (not FIT): scales the 800x600 canvas up to fully cover the
-    // viewport — no letterbox bars on wide screens — cropping a bit of the
-    // top/bottom instead of pillarboxing the sides. Internal canvas stays a
-    // fixed 800x600 either way, which matters because student-submitted
-    // mini-games (GameScene) and room code are authored assuming that exact
-    // coordinate space; RESIZE mode would silently break their positioning.
-    mode: Phaser.Scale.ENVELOP,
-    autoCenter: Phaser.Scale.CENTER_BOTH
+    // RESIZE: the canvas's actual pixel resolution matches the browser
+    // window exactly, so WorldScene/RoomScene's camera (which just follows
+    // the player through a world larger than any one screen) shows more of
+    // the world at native scale — wider field of view, no upscale blur, no
+    // letterbox bars. Rooms are authored in world-space (1600x1200,
+    // scrolling camera) so they're unaffected. GameScene (student mini-games)
+    // is the one exception — it draws in fixed 0-800/0-600 screen-space with
+    // no scrolling camera, so it explicitly pins its own camera viewport to
+    // a fixed centered 800x600 box (see GameScene.js) to keep working
+    // regardless of the real canvas size.
+    mode: Phaser.Scale.RESIZE,
+    width: window.innerWidth,
+    height: window.innerHeight,
   },
 
   physics: {

@@ -34,6 +34,16 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // The main game canvas is RESIZE-scaled to fill the whole browser window
+    // (see main.js), but mini-games are authored assuming a fixed 800x600
+    // screen (COORDINATE SPACE: x 0-800, y 65-590 in the room-building
+    // prompt). Pin this scene's own camera to a centered 800x600 box so
+    // student game code's literal pixel coordinates stay correct no matter
+    // how big the real canvas is.
+    this._fitViewport();
+    this.scale.on('resize', this._fitViewport, this);
+    this.events.once('shutdown', () => this.scale.off('resize', this._fitViewport, this));
+
     // ── Panel backdrop (negative depth so game content at depth 0 renders above) ─
     this.add.rectangle(400, 300, 800, 600, 0x000000, 0.72).setDepth(-2);
     this.add.rectangle(400, 310, 780, 560, 0x0d0d1a).setDepth(-1);
@@ -91,6 +101,12 @@ export default class GameScene extends Phaser.Scene {
 
   update() {
     if (this._gameUpdate) this._gameUpdate();
+  }
+
+  _fitViewport() {
+    const x = Math.round((this.scale.width  - 800) / 2);
+    const y = Math.round((this.scale.height - 600) / 2);
+    this.cameras.main.setViewport(x, y, 800, 600);
   }
 
   _showError(msg) {
