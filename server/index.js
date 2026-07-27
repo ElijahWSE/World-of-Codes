@@ -546,13 +546,20 @@ const gameServer = new Server({
     app.post('/api/auth/save-character', async (req, res) => {
       const { idToken, config } = req.body ?? {};
       if (!idToken) return res.status(400).json({ error: 'ID token required' });
+      let uid;
       try {
-        const { uid } = await admin.auth().verifyIdToken(idToken);
+        ({ uid } = await admin.auth().verifyIdToken(idToken));
+      } catch (e) {
+        return res.status(401).json({ error: 'Invalid ID token' });
+      }
+      try {
         const characterConfig = sanitizeConfig(config);
         await db.collection('users').doc(uid).set({ characterConfig }, { merge: true });
+        console.log('[save-character] saved for', uid, '—', characterConfig.shapes.length, 'shape(s)');
         res.json({ ok: true, characterConfig });
       } catch (e) {
-        res.status(401).json({ error: 'Invalid ID token' });
+        console.error('[save-character] failed for', uid, e);
+        res.status(500).json({ error: 'Save failed — please try again' });
       }
     });
 
