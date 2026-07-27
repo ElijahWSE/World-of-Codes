@@ -259,6 +259,24 @@ export default class ProfileScene extends Phaser.Scene {
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
+  // Only offered before the player has joined the live Colyseus world —
+  // 'overlay' entry means WorldScene is paused underneath with this
+  // player's sprite already built from the old config, and other players'
+  // clients already have it cached (fetchCharacterConfig's module-level
+  // cache in CharacterRenderer.js). Pushing a mid-session edit live to
+  // everyone would need a broadcast + cache-invalidation story of its own,
+  // which is real, separate scope beyond letting you redesign your look.
+  _canEditCharacter() {
+    return this._isSelf && this._entryMode === 'landing';
+  }
+
+  _handleEditCharacter() {
+    this.scene.start('CharacterScene', {
+      uid: this._self.uid, displayName: this._self.displayName, photoURL: this._self.photoURL,
+      existingConfig: this._self.characterConfig,
+    });
+  }
+
   _handlePrimaryAction() {
     if (this._entryMode === 'landing') {
       this.scene.start('WorldScene', {
@@ -302,11 +320,15 @@ export default class ProfileScene extends Phaser.Scene {
         <div id="woc-profile-pane-feedback" style="display:none"></div>
       </div>
       <div style="padding:1rem 1.5rem;border-top:1px solid #F0E4C8;flex-shrink:0">
+        ${this._canEditCharacter() ? `<button id="woc-profile-edit" style="width:100%;padding:0.55rem;margin-bottom:0.6rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.85rem">Edit Character</button>` : ''}
         <button id="woc-profile-primary" style="width:100%;padding:0.65rem;background:#FF7A59;color:#ffffff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.9rem">${primaryLabel}</button>
       </div>`;
     document.body.appendChild(el);
     this._overlayEl = el;
     document.getElementById('woc-profile-primary').onclick = () => this._handlePrimaryAction();
+    if (this._canEditCharacter()) {
+      document.getElementById('woc-profile-edit').onclick = () => this._handleEditCharacter();
+    }
     document.getElementById('woc-profile-status').textContent = 'Loading...';
   }
 

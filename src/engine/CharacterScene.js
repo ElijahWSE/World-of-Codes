@@ -26,20 +26,30 @@ const DEFAULT_CONFIG = {
 };
 
 const CHARACTER_PROMPT =
-  "I want you to design a simple 2D game character made only of flat-colored rectangles and circles — no images, no gradients.\n" +
+  "I want you to design a simple 2D game character made only of flat-colored shapes — no images, no gradients.\n" +
   "\n" +
-  "First ask me what I want the character to look like, or suggest a few fun ideas. Once we agree on a design, output it as JSON.\n" +
+  "Here are the descriptions of my character:\n" +
+  "[Insert description here - you can be specific about the colour, shape etc.]\n" +
+  "\n" +
+  "Once we agree on a design, output it as JSON.\n" +
   "\n" +
   "RULES for the JSON:\n" +
   "  ✅ Output ONLY a single JSON object as your final answer — no explanation, no code fences, nothing else\n" +
-  "  ✅ Shape: { \"type\": \"rect\"|\"circle\", \"x\": number, \"y\": number, \"color\": \"#rrggbb\" }\n" +
-  "       - \"rect\" also needs \"w\" and \"h\" (width, height)\n" +
-  "       - \"circle\" also needs \"r\" (radius)\n" +
+  "  ✅ Shape: { \"type\": \"rect\"|\"circle\"|\"triangle\"|\"ellipse\", \"x\": number, \"y\": number, \"color\": \"#rrggbb\" }\n" +
+  "       - \"rect\" needs \"w\" and \"h\" (width, height). x/y is its TOP-LEFT corner.\n" +
+  "       - \"circle\" needs \"r\" (radius). x/y is its CENTER.\n" +
+  "       - \"triangle\" and \"ellipse\" need \"w\" and \"h\" (bounding box width/height). x/y is their CENTER. Triangle always points straight up.\n" +
   "  ✅ x/y are relative to the character's center at (0, 0). Roughly: y from -45 (top of head) to +20 (feet), x from -20 (left) to +20 (right)\n" +
+  "  ✅ Optional per-shape extras — leave any of these out to use the default:\n" +
+  "       - \"rotation\": 0-360 degrees, tilts the shape around its own center (default 0). Good for angled arms, antennae, tilted hats.\n" +
+  "       - \"alpha\": 0-1 opacity (default 1). Good for translucent glasses lenses, soft shadows, ghostly effects.\n" +
+  "       - \"strokeColor\": \"#rrggbb\" outline color, and \"strokeWidth\": 0-6 outline thickness (both default to none). Adds a cartoon outline to a shape.\n" +
   "  ✅ List shapes in draw order — later shapes are drawn on top of earlier ones (e.g. draw the head before the eyes)\n" +
-  "  ✅ Up to 20 shapes total\n" +
+  "  ✅ Up to 30 shapes total\n" +
   "  ✅ \"scale\": a number between 0.8 and 1.3 (1.0 is normal size)\n" +
-  "  ❌ No other shape types, no gradients, no images, no animation fields — just flat rectangles and circles\n" +
+  "  ❌ No other shape types, no images — just flat rectangles, circles, triangles, and ellipses\n" +
+  "\n" +
+  "A small pair of circles near the top of the head, sized about r:2-4, will blink automatically — no need to animate that yourself.\n" +
   "\n" +
   "EXAMPLE (a simple person):\n" +
   JSON.stringify(DEFAULT_CONFIG, null, 2) +
@@ -71,6 +81,10 @@ export default class CharacterScene extends Phaser.Scene {
     this._uid         = data?.uid ?? null;
     this._displayName = data?.displayName ?? 'Player';
     this._photoURL    = data?.photoURL ?? null;
+    // Set only when reached via ProfileScene's "Edit Character" button —
+    // LoginScene only ever routes here for brand-new players, who have no
+    // config to pre-fill with.
+    this._existingConfig = data?.existingConfig ?? null;
     this._previewContainer = null;
     this._demoIndex   = 0;
     this._demoElapsed = 0;
@@ -117,12 +131,14 @@ export default class CharacterScene extends Phaser.Scene {
     ].join(';');
     el.innerHTML = `
       <div style="width:440px;max-width:60vw;background:#FFFFFF;border-right:1px solid #F0E4C8;padding:1.75rem;overflow-y:auto;box-sizing:border-box;font-family:'Nunito',system-ui,sans-serif">
-        <h1 style="color:#FF7A59;margin:0 0 0.35rem;font-size:1.2rem">Design Your Character</h1>
-        <p style="color:#6E7191;font-size:0.8rem;margin-bottom:1.25rem">Welcome, ${escHtml(this._displayName)}! Before you enter the town square, design how you'll look to everyone else.</p>
+        <h1 style="color:#FF7A59;margin:0 0 0.35rem;font-size:1.2rem">${this._existingConfig ? 'Edit Your Character' : 'Design Your Character'}</h1>
+        <p style="color:#6E7191;font-size:0.8rem;margin-bottom:1.25rem">${this._existingConfig
+          ? `Redesign how you look to everyone else, ${escHtml(this._displayName)}.`
+          : `Welcome, ${escHtml(this._displayName)}! Before you enter the town square, design how you'll look to everyone else.`}</p>
 
         <ol style="color:#6E7191;font-size:0.78rem;line-height:1.6;padding-left:1.1rem;margin-bottom:1rem">
           <li>Copy the prompt below into <strong style="color:#2EC4B6">gemini.google.com</strong></li>
-          <li>Describe the character you want in your own words</li>
+          <li>Before sending it, replace the description placeholder with your own words — be as specific as you like about colour, shape, etc.</li>
           <li>Paste Gemini's final JSON into the box below</li>
           <li>Check the live preview on the right, then Save</li>
         </ol>
@@ -139,7 +155,7 @@ export default class CharacterScene extends Phaser.Scene {
 
         <div style="display:flex;gap:0.75rem">
           <button id="woc-char-preview" style="flex:1;padding:0.55rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Update Preview</button>
-          <button id="woc-char-save" style="flex:1;padding:0.55rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">Save &amp; Enter World</button>
+          <button id="woc-char-save" style="flex:1;padding:0.55rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.85rem">${this._existingConfig ? 'Save Changes' : 'Save &amp; Enter World'}</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -149,8 +165,9 @@ export default class CharacterScene extends Phaser.Scene {
     document.getElementById('woc-char-preview').onclick = () => this._updatePreviewFromInput();
     document.getElementById('woc-char-save').onclick    = () => this._save();
 
-    // Seed with a friendly default so the preview is never empty.
-    document.getElementById('woc-char-json').value = JSON.stringify(DEFAULT_CONFIG, null, 2);
+    // Seed with the player's current design when editing, otherwise a
+    // friendly default so the preview is never empty.
+    document.getElementById('woc-char-json').value = JSON.stringify(this._existingConfig ?? DEFAULT_CONFIG, null, 2);
     this._updatePreviewFromInput();
   }
 

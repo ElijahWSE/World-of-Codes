@@ -4,7 +4,7 @@
   "description": "2D top-down multiplayer game world where players share a town square and visit each other's custom rooms",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "VITE_COLYSEUS_URL= vite",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
