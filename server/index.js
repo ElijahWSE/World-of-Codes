@@ -24,7 +24,7 @@ const ADMIN_HTML = join(ROOT, 'admin.html');
 const DATA_DIR   = join(__dirname, 'data');
 const SLOTS_FILE = join(DATA_DIR, 'slots.json');
 
-const ADMIN_PASSWORD = 'worldofcodes';
+const ADMIN_PASSWORD = 'impactground';
 
 // Room world bounds — same size as RoomScene.js's ROOM_W/ROOM_H (and the
 // town square, per _template.js) — used only to clamp incoming object x/y.
