@@ -29,6 +29,7 @@ import {
 const SPEED          = 160;
 const PORTAL_RADIUS  = 42;   // trigger distance for entering an active portal
 const CLAIM_RADIUS   = 90;   // trigger distance for showing the claim hint
+const FOUNTAIN_RADIUS = 130; // trigger distance for the fountain's idea-prompt hint
 
 const SERVER_URL = wsUrl();
 
@@ -58,6 +59,8 @@ export default class WorldScene extends Phaser.Scene {
     this._transitioning = false;
     this._sessionEndingEl = null;
     this._sessionEndingInterval = null;
+    this._fountainOverlayEl   = null;
+    this._fountainOverlayOpen = false;
   }
 
   init(data) {
@@ -385,6 +388,12 @@ export default class WorldScene extends Phaser.Scene {
     const hitbox = this.add.rectangle(cx, cy, R * 1.6, R * 1.6, 0x000000, 0);
     this.physics.add.existing(hitbox, true);
     this.physics.add.collider(this.player, hitbox);
+
+    // First-creation idea prompt hint — proximity-gated like the portal
+    // hints, toggled in update()'s "Fountain proximity" block.
+    this._fountainHint = this.add.text(cx, cy - R - 20, '[I]  First Creation Idea', {
+      fontSize: '12px', fill: '#ccddaa', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20).setVisible(false);
   }
 
   _createTree(x, y) {
@@ -554,8 +563,10 @@ export default class WorldScene extends Phaser.Scene {
     });
     this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E); // claim/enter a portal
     this._keyU = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U); // update an owned world
+    this._keyI = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.I); // fountain: first-creation idea prompt
     this.input.keyboard.on('keydown-ESC', () => {
       if (this._claimOpen) this._closeClaimOverlay();
+      if (this._fountainOverlayOpen) this._closeFountainOverlay();
     });
   }
 
@@ -903,7 +914,7 @@ export default class WorldScene extends Phaser.Scene {
 
     // Freeze movement when the claim overlay is open, or a portal/warp
     // transition (session enter/exit) is playing
-    if (this._claimOpen || this._transitioning) {
+    if (this._claimOpen || this._fountainOverlayOpen || this._transitioning) {
       this.player.body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta }); // idle bob keeps playing even while frozen
       if (this._transitioning) return;
@@ -983,6 +994,105 @@ export default class WorldScene extends Phaser.Scene {
         }
       }
     }
+
+    // ── Fountain proximity ─────────────────────────────────────────────────
+    if (this._fountainHint) {
+      const fdist = Phaser.Math.Distance.Between(this.player.x, this.player.y, HUB_BOUNDS.cx, HUB_BOUNDS.cy);
+      const fnear = fdist < FOUNTAIN_RADIUS;
+      this._fountainHint.setVisible(fnear);
+      if (fnear && Phaser.Input.Keyboard.JustDown(this._keyI)) {
+        this._openFountainOverlay();
+      }
+    }
+  }
+
+  // ── Fountain Idea-Prompt Overlay ────────────────────────────────────────────
+  // A "what's your first creation?" brainstorming prompt, reached via [I] at
+  // the town garden fountain — same disableGlobalCapture/style.display
+  // create-once-then-toggle convention as the claim overlay above. Each
+  // field fills one blank in FOUNTAIN_PROMPT_FIELDS' template; Copy builds
+  // the final prompt with every filled field substituted in and every
+  // untouched one left as the original underscore blank, so a partially
+  // filled-in form still copies a usable, further-fillable prompt.
+  _fountainPromptText() {
+    const v = (id) => {
+      const val = document.getElementById(`woc-fountain-${id}`)?.value.trim();
+      return val || '_________________';
+    };
+    return (
+      `I am just learning to code using AI, and I am thinking of creating a ${v('type')} as my first creation. Here are some details of the webapp that I want to create:\n\n` +
+      `I want to build a ${v('what')}.\n` +
+      `This webapp is meant for ${v('who')}.\n` +
+      `This webapp is meant to help ${v('purpose')}.\n` +
+      `In using this webapp, users will be able to ${v('features')}.\n` +
+      `When opening the webapp, the homepage should ${v('homepage')}. Users can then click on ${v('navClick')}...\n` +
+      `I want the general design of the webapp to be ${v('style')}.\n` +
+      `You may follow the sample webapp on ${v('reference')} as it has the functions / design that I want.\n\n` +
+      `Ask me 3 more questions to refine my idea.`
+    );
+  }
+
+  _createFountainOverlay() {
+    const fields = [
+      ['type',     '...I am thinking of creating a ___ as my first creation.',        'e.g. a personal budget tracker'],
+      ['what',     'I want to build a ___.',                                          'e.g. a simple budget tracking webapp'],
+      ['who',      'This webapp is meant for ___.',                                   'e.g. university students'],
+      ['purpose',  'This webapp is meant to help ___.',                               'e.g. track their monthly spending'],
+      ['features', 'Using this webapp, users will be able to ___.',                   'e.g. add expenses, see charts, set budgets'],
+      ['homepage', 'When opening the webapp, the homepage should ___.',               "e.g. show a summary of this month's spending"],
+      ['navClick', 'Users can then click on ___...',                                  "e.g. an “Add Expense” button"],
+      ['style',    'I want the general design of the webapp to be ___.',              'e.g. clean, colorful, minimal'],
+      ['reference','You may follow the sample webapp on ___ as it has the functions / design that I want.', 'e.g. Mint.com, or a site you like'],
+    ];
+    const fieldsHTML = fields.map(([id, label, placeholder]) => `
+        <label style="display:block;margin-bottom:0.75rem">
+          <span style="display:block;color:#6E7191;font-size:0.78rem;margin-bottom:0.3rem">${label}</span>
+          <input id="woc-fountain-${id}" type="text" maxlength="200" placeholder="${placeholder}"
+            style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.85rem;box-sizing:border-box;outline:none">
+        </label>`).join('');
+
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#FF7A59;margin:0 0 0.5rem;font-size:1.1rem">💭 Your First Creation</h2>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Fill in as many blanks as you like, then copy the whole prompt to paste into Gemini. Anything left blank stays as a blank you can fill in yourself later.</p>
+        ${fieldsHTML}
+        <div id="woc-fountain-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-fountain-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-fountain-copy" style="padding:0.5rem 1.25rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Copy Prompt</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._fountainOverlayEl = el;
+    document.getElementById('woc-fountain-close').onclick = () => this._closeFountainOverlay();
+    document.getElementById('woc-fountain-copy').onclick  = () => {
+      const btn    = document.getElementById('woc-fountain-copy');
+      const status = document.getElementById('woc-fountain-status');
+      navigator.clipboard.writeText(this._fountainPromptText())
+        .then(() => { status.textContent = '✓ Copied! Paste it into Gemini.'; status.style.color = '#2EC4B6'; })
+        .catch(() => { status.textContent = 'Copy failed — try again.'; status.style.color = '#B5401F'; });
+      btn.textContent = 'Copy Prompt';
+    };
+  }
+
+  _openFountainOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._fountainOverlayEl) this._createFountainOverlay();
+    this._fountainOverlayEl.style.display = 'flex';
+    document.getElementById('woc-fountain-status').textContent = '';
+    this._fountainOverlayOpen = true;
+  }
+
+  _closeFountainOverlay() {
+    if (this._fountainOverlayEl) this._fountainOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._fountainOverlayOpen = false;
   }
 
   // ── Claim Overlay (HTML div) ───────────────────────────────────────────────
