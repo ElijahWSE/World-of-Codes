@@ -189,35 +189,18 @@ function generatePlots() {
 
 export const PLOTS = generatePlots();
 
-// A spawn point near the hub, guaranteed to sit clear of every portal's
-// trigger radius (90px) so a freshly-spawned player never lands right next
-// to someone else's portal hint. Searched at spawn-relevant angles/radii
-// around the hub rather than hardcoded, so it stays correct even if the
-// layout parameters above change.
-function insideHubRect(x, y, pad) {
-  return Math.abs(x - HUB_BOUNDS.cx) < HUB_HALF_W + pad && Math.abs(y - HUB_BOUNDS.cy) < HUB_HALF_H + pad;
-}
+// A spawn point inside the town garden itself, just south of the fountain —
+// between the fountain's solid collider (R=78, square hitbox half-extent
+// ~62px, see WorldScene._createGarden) and the pair of south trees (offset
+// halfH-55 = 205px from center), so a freshly-spawned player lands on open
+// lawn with a clear view of the fountain rather than out on the street.
+// Every plot/portal lives outside the hub rectangle by construction (see
+// HUB_PADDING in generatePlots), so any point inside the hub is guaranteed
+// far from every portal's trigger radius — no plot-clearance search needed.
+const SPAWN_OFFSET_Y = 140;
 
 function findSpawnPoint() {
-  const CLEARANCE = 150;
-  const HUB_PAD = 60; // the hub is a rectangle, not a circle — must be checked explicitly, a radius alone can still land inside it near its corners/edges
-  let best = null;
-  for (let deg = 0; deg < 360; deg += 5) {
-    const rad = (deg * Math.PI) / 180;
-    for (const r of [260, 300, 340, 380, 420, 460]) {
-      const sx = HUB_BOUNDS.cx + Math.cos(rad) * r;
-      const sy = HUB_BOUNDS.cy + Math.sin(rad) * r;
-      if (insideHubRect(sx, sy, HUB_PAD)) continue;
-      let minDist = Infinity;
-      for (const p of PLOTS) {
-        const d = Math.hypot(p.x - sx, p.y - sy);
-        if (d < minDist) minDist = d;
-      }
-      if (minDist >= CLEARANCE) return { x: Math.round(sx), y: Math.round(sy) };
-      if (!best || minDist > best.minDist) best = { x: Math.round(sx), y: Math.round(sy), minDist };
-    }
-  }
-  return { x: best.x, y: best.y }; // fallback: best clearance found, even if under target
+  return { x: Math.round(HUB_BOUNDS.cx), y: Math.round(HUB_BOUNDS.cy + SPAWN_OFFSET_Y) };
 }
 
 export const SPAWN_POINT = findSpawnPoint();

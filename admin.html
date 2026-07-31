@@ -46,10 +46,16 @@
     .status { margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.875rem; display: none; }
     .status.ok  { background: #DCF7F1; border: 1px solid #0f7a6c; color: #0f7a6c; display: block; }
     .status.err { background: #FFE3D8; border: 1px solid #B5401F; color: #B5401F; display: block; }
-    .password-row { display: flex; align-items: flex-end; gap: 1rem; }
-    .password-row label { flex: 1; margin-bottom: 0; }
-    #password-saved { color: #2EC4B6; font-size: 0.85rem; }
     .note { font-size: 0.8rem; color: #6E7191; margin-top: 0.75rem; }
+
+    /* Password gate */
+    #password-gate { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(45,48,71,0.72); }
+    #password-gate .gate-card { background: #FFFFFF; border: 1px solid #F0E4C8; border-radius: 12px; padding: 2rem; width: 340px; max-width: 90vw; text-align: center; }
+    #password-gate h1 { font-size: 1.3rem; margin-bottom: 0.25rem; }
+    #password-gate .btn { width: 100%; margin-top: 1rem; }
+    #gate-status { margin-top: 0.85rem; font-size: 0.82rem; min-height: 1.2rem; color: #B5401F; }
+    #admin-content { transition: filter 0.15s; }
+    #admin-content.locked { filter: blur(4px) brightness(0.75); pointer-events: none; user-select: none; }
 
     /* Tabs */
     .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid #F0E4C8; }
@@ -95,21 +101,22 @@
 </head>
 <body>
 
+<!-- Password Gate — blocks/dims everything below until verified server-side -->
+<div id="password-gate">
+  <div class="gate-card">
+    <h1>ImpactGround</h1>
+    <p class="subtitle" style="margin-bottom:1.25rem">Admin Panel — enter password to continue</p>
+    <input type="password" id="gate-password" placeholder="Admin password" autofocus
+      onkeydown="if(event.key==='Enter') submitGatePassword()">
+    <button class="btn" onclick="submitGatePassword()">Enter</button>
+    <div id="gate-status"></div>
+  </div>
+</div>
+
+<div id="admin-content" class="locked">
+
 <h1>ImpactGround</h1>
 <p class="subtitle">Admin Panel — room management</p>
-
-<!-- Password -->
-<section>
-  <h2>Password</h2>
-  <div class="password-row">
-    <label>
-      <span>Admin Password</span>
-      <input type="password" id="password" placeholder="Enter password and click Save">
-    </label>
-    <button class="btn" onclick="savePassword()">Save</button>
-    <span id="password-saved" style="display:none">Saved ✓</span>
-  </div>
-</section>
 
 <!-- Online Feedback toggle (Phase 14) -->
 <section>
@@ -281,18 +288,67 @@
   </section>
 </div>
 
+</div><!-- /#admin-content -->
+
 <script>
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getPassword() { return sessionStorage.getItem('woc_admin_pw') || ''; }
 
-function savePassword() {
-  const pw = document.getElementById('password').value;
-  if (!pw) return;
-  sessionStorage.setItem('woc_admin_pw', pw);
-  document.getElementById('password').value = '';
-  const el = document.getElementById('password-saved');
-  el.style.display = 'inline';
-  setTimeout(() => el.style.display = 'none', 3000);
+// ── Password Gate ─────────────────────────────────────────────────────────────
+// GET /admin/settings is a read-only, side-effect-free endpoint that already
+// 401s on a wrong password (server/index.js) — reused here purely to verify
+// a password server-side before revealing/unlocking the panel, rather than
+// adding a dedicated auth endpoint for the same check.
+async function submitGatePassword() {
+  const pwInput = document.getElementById('gate-password');
+  const status  = document.getElementById('gate-status');
+  const pw = pwInput.value;
+  if (!pw) { status.textContent = 'Enter a password.'; status.style.color = '#B5401F'; return; }
+  status.textContent = 'Checking…';
+  status.style.color = '#6E7191';
+  try {
+    const res = await fetch(`/admin/settings?password=${encodeURIComponent(pw)}`);
+    if (res.ok) {
+      sessionStorage.setItem('woc_admin_pw', pw);
+      unlockAdmin();
+    } else {
+      status.textContent = 'Wrong password — try again.';
+      status.style.color = '#B5401F';
+      pwInput.value = '';
+      pwInput.focus();
+    }
+  } catch (e) {
+    status.textContent = `Network error: ${e.message}`;
+    status.style.color = '#B5401F';
+  }
+}
+
+function unlockAdmin() {
+  document.getElementById('password-gate').style.display = 'none';
+  document.getElementById('admin-content').classList.remove('locked');
+  loadSlots();
+  loadFeedbackToggle();
+  loadSessionStatus();
+  loadProfilesList();
+}
+
+// A password saved from an earlier page load is re-verified server-side
+// (silently) before trusting it again — if the admin password has since
+// changed, or the stored value was never valid, this clears it and falls
+// back to showing the gate instead of leaving password-gated sections
+// (Player Profiles, Online Feedback, Session) stuck showing a stale
+// "wrong password" error from a fetch that fired before anyone typed
+// anything in.
+async function initGate() {
+  const stored = getPassword();
+  if (stored) {
+    try {
+      const res = await fetch(`/admin/settings?password=${encodeURIComponent(stored)}`);
+      if (res.ok) { unlockAdmin(); return; }
+    } catch (e) { /* fall through to showing the gate */ }
+    sessionStorage.removeItem('woc_admin_pw');
+  }
+  document.getElementById('gate-password').focus();
 }
 
 function showStatus(id, msg, ok) {
@@ -932,16 +988,9 @@ function escAttr(s) {
   return String(s ?? '').replace(/'/g, '\\\'');
 }
 
-// Init
-if (sessionStorage.getItem('woc_admin_pw')) {
-  const el = document.getElementById('password-saved');
-  el.textContent = 'Password saved ✓';
-  el.style.display = 'inline';
-}
-loadSlots();
-loadFeedbackToggle();
-loadSessionStatus();
-loadProfilesList();
+// Init — everything password-gated only starts loading once unlockAdmin()
+// runs (see initGate() above), never eagerly on page load.
+initGate();
 </script>
 </body>
 </html>

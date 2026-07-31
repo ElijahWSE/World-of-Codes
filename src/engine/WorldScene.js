@@ -29,6 +29,7 @@ import {
 const SPEED          = 160;
 const PORTAL_RADIUS  = 42;   // trigger distance for entering an active portal
 const CLAIM_RADIUS   = 90;   // trigger distance for showing the claim hint
+const FOUNTAIN_RADIUS = 130; // trigger distance for the fountain's idea-prompt hint
 
 const SERVER_URL = wsUrl();
 
@@ -58,6 +59,8 @@ export default class WorldScene extends Phaser.Scene {
     this._transitioning = false;
     this._sessionEndingEl = null;
     this._sessionEndingInterval = null;
+    this._fountainOverlayEl   = null;
+    this._fountainOverlayOpen = false;
   }
 
   init(data) {
@@ -84,7 +87,6 @@ export default class WorldScene extends Phaser.Scene {
     this._createStreetsAndPlots();
     this._createPlayer();
     this._createGarden();
-    this._createSignpost();
     this._createSignOutButton();
     this._createProfileButton();
     this._createPlayersOnlineSidebar();
@@ -386,6 +388,12 @@ export default class WorldScene extends Phaser.Scene {
     const hitbox = this.add.rectangle(cx, cy, R * 1.6, R * 1.6, 0x000000, 0);
     this.physics.add.existing(hitbox, true);
     this.physics.add.collider(this.player, hitbox);
+
+    // First-creation idea prompt hint — proximity-gated like the portal
+    // hints, toggled in update()'s "Fountain proximity" block.
+    this._fountainHint = this.add.text(cx, cy - R - 20, '[I]  First Creation Idea', {
+      fontSize: '12px', fill: '#ccddaa', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20).setVisible(false);
   }
 
   _createTree(x, y) {
@@ -552,6 +560,13 @@ export default class WorldScene extends Phaser.Scene {
     this.wasd    = this.input.keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W, down:  Phaser.Input.Keyboard.KeyCodes.S,
       left: Phaser.Input.Keyboard.KeyCodes.A, right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+    this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E); // claim/enter a portal
+    this._keyU = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U); // update an owned world
+    this._keyI = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.I); // fountain: first-creation idea prompt
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this._claimOpen) this._closeClaimOverlay();
+      if (this._fountainOverlayOpen) this._closeFountainOverlay();
     });
   }
 
@@ -891,32 +906,18 @@ export default class WorldScene extends Phaser.Scene {
   update(time, delta) {
     // Runs unconditionally, before any local-overlay early return below —
     // other players keep animating smoothly even while the local player has
-    // a signpost or claim form open, since they're moving independently
-    // over the network regardless of local UI state.
+    // a claim form open, since they're moving independently over the
+    // network regardless of local UI state.
     this.otherPlayers.forEach(p => {
       if (p.animated) updateCharacter(p.body, { moving: p.moving, facingX: p.facingX, delta });
     });
 
-    // Freeze movement when sign is open, claim overlay is open, or a
-    // portal/warp transition (session enter/exit) is playing
-    if (this._signOpen || this._claimOpen || this._transitioning) {
+    // Freeze movement when the claim overlay is open, or a portal/warp
+    // transition (session enter/exit) is playing
+    if (this._claimOpen || this._fountainOverlayOpen || this._transitioning) {
       this.player.body.setVelocity(0);
       updateCharacter(this.player, { moving: false, delta }); // idle bob keeps playing even while frozen
       if (this._transitioning) return;
-      if (this._signOpen) {
-        const JD = k => Phaser.Input.Keyboard.JustDown(k);
-        if (JD(this._keyE) || JD(this.cursors.right)) {
-          if (this._signPage < this._signPages.length - 1) {
-            this._signPage++;
-            this._renderSignPage();
-          } else {
-            this._closeSignpost();
-            return;
-          }
-        } else if (JD(this.cursors.left)) {
-          if (this._signPage > 0) { this._signPage--; this._renderSignPage(); }
-        }
-      }
       this.playerLabel.setPosition(this.player.x, this.player.y - 24);
       return;
     }
@@ -942,15 +943,6 @@ export default class WorldScene extends Phaser.Scene {
         this.colyseusRoom.send('move', { x: px, y: py });
         this._lastSentX = px; this._lastSentY = py;
       }
-    }
-
-    // ── Signpost proximity (checked before portals so E opens sign first) ──
-    const signDist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this._signX, this._signY);
-    const nearSign = signDist < 80;
-    this._signHint.setVisible(nearSign);
-    if (nearSign && Phaser.Input.Keyboard.JustDown(this._keyE)) {
-      this._openSignpost();
-      return;
     }
 
     // ── Portal proximity ───────────────────────────────────────────────────
@@ -1002,6 +994,105 @@ export default class WorldScene extends Phaser.Scene {
         }
       }
     }
+
+    // ── Fountain proximity ─────────────────────────────────────────────────
+    if (this._fountainHint) {
+      const fdist = Phaser.Math.Distance.Between(this.player.x, this.player.y, HUB_BOUNDS.cx, HUB_BOUNDS.cy);
+      const fnear = fdist < FOUNTAIN_RADIUS;
+      this._fountainHint.setVisible(fnear);
+      if (fnear && Phaser.Input.Keyboard.JustDown(this._keyI)) {
+        this._openFountainOverlay();
+      }
+    }
+  }
+
+  // ── Fountain Idea-Prompt Overlay ────────────────────────────────────────────
+  // A "what's your first creation?" brainstorming prompt, reached via [I] at
+  // the town garden fountain — same disableGlobalCapture/style.display
+  // create-once-then-toggle convention as the claim overlay above. Each
+  // field fills one blank in FOUNTAIN_PROMPT_FIELDS' template; Copy builds
+  // the final prompt with every filled field substituted in and every
+  // untouched one left as the original underscore blank, so a partially
+  // filled-in form still copies a usable, further-fillable prompt.
+  _fountainPromptText() {
+    const v = (id) => {
+      const val = document.getElementById(`woc-fountain-${id}`)?.value.trim();
+      return val || '_________________';
+    };
+    return (
+      `I am just learning to code using AI, and I am thinking of creating a ${v('type')} as my first creation. Here are some details of the webapp that I want to create:\n\n` +
+      `I want to build a ${v('what')}.\n` +
+      `This webapp is meant for ${v('who')}.\n` +
+      `This webapp is meant to help ${v('purpose')}.\n` +
+      `In using this webapp, users will be able to ${v('features')}.\n` +
+      `When opening the webapp, the homepage should ${v('homepage')}. Users can then click on ${v('navClick')}...\n` +
+      `I want the general design of the webapp to be ${v('style')}.\n` +
+      `You may follow the sample webapp on ${v('reference')} as it has the functions / design that I want.\n\n` +
+      `Ask me 3 more questions to refine my idea.`
+    );
+  }
+
+  _createFountainOverlay() {
+    const fields = [
+      ['type',     '...I am thinking of creating a ___ as my first creation.',        'e.g. a personal budget tracker'],
+      ['what',     'I want to build a ___.',                                          'e.g. a simple budget tracking webapp'],
+      ['who',      'This webapp is meant for ___.',                                   'e.g. university students'],
+      ['purpose',  'This webapp is meant to help ___.',                               'e.g. track their monthly spending'],
+      ['features', 'Using this webapp, users will be able to ___.',                   'e.g. add expenses, see charts, set budgets'],
+      ['homepage', 'When opening the webapp, the homepage should ___.',               "e.g. show a summary of this month's spending"],
+      ['navClick', 'Users can then click on ___...',                                  "e.g. an “Add Expense” button"],
+      ['style',    'I want the general design of the webapp to be ___.',              'e.g. clean, colorful, minimal'],
+      ['reference','You may follow the sample webapp on ___ as it has the functions / design that I want.', 'e.g. Mint.com, or a site you like'],
+    ];
+    const fieldsHTML = fields.map(([id, label, placeholder]) => `
+        <label style="display:block;margin-bottom:0.75rem">
+          <span style="display:block;color:#6E7191;font-size:0.78rem;margin-bottom:0.3rem">${label}</span>
+          <input id="woc-fountain-${id}" type="text" maxlength="200" placeholder="${placeholder}"
+            style="width:100%;padding:0.5rem 0.75rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;color:#2D3047;font-size:0.85rem;box-sizing:border-box;outline:none">
+        </label>`).join('');
+
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed;inset:0;z-index:9999',
+      'display:flex;align-items:center;justify-content:center',
+      'background:rgba(0,0,0,0.72)',
+    ].join(';');
+    el.innerHTML = `
+      <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
+        <h2 style="color:#FF7A59;margin:0 0 0.5rem;font-size:1.1rem">💭 Your First Creation</h2>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Fill in as many blanks as you like, then copy the whole prompt to paste into Gemini. Anything left blank stays as a blank you can fill in yourself later.</p>
+        ${fieldsHTML}
+        <div id="woc-fountain-status" style="margin-bottom:0.75rem;font-size:0.82rem;min-height:1.2rem"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button id="woc-fountain-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
+          <button id="woc-fountain-copy" style="padding:0.5rem 1.25rem;background:#FF7A59;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Copy Prompt</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    this._fountainOverlayEl = el;
+    document.getElementById('woc-fountain-close').onclick = () => this._closeFountainOverlay();
+    document.getElementById('woc-fountain-copy').onclick  = () => {
+      const btn    = document.getElementById('woc-fountain-copy');
+      const status = document.getElementById('woc-fountain-status');
+      navigator.clipboard.writeText(this._fountainPromptText())
+        .then(() => { status.textContent = '✓ Copied! Paste it into Gemini.'; status.style.color = '#2EC4B6'; })
+        .catch(() => { status.textContent = 'Copy failed — try again.'; status.style.color = '#B5401F'; });
+      btn.textContent = 'Copy Prompt';
+    };
+  }
+
+  _openFountainOverlay() {
+    this.input.keyboard.disableGlobalCapture();
+    if (!this._fountainOverlayEl) this._createFountainOverlay();
+    this._fountainOverlayEl.style.display = 'flex';
+    document.getElementById('woc-fountain-status').textContent = '';
+    this._fountainOverlayOpen = true;
+  }
+
+  _closeFountainOverlay() {
+    if (this._fountainOverlayEl) this._fountainOverlayEl.style.display = 'none';
+    this.input.keyboard.enableGlobalCapture();
+    this._fountainOverlayOpen = false;
   }
 
   // ── Claim Overlay (HTML div) ───────────────────────────────────────────────
@@ -1015,7 +1106,36 @@ export default class WorldScene extends Phaser.Scene {
     el.innerHTML = `
       <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
         <h2 id="woc-claim-title" style="color:#FF7A59;margin:0 0 0.5rem;font-size:1.1rem">Claim Portal</h2>
-        <p id="woc-claim-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
+        <p id="woc-claim-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1rem">Enter your name and paste your Gemini-generated world code. The admin will review and approve it.</p>
+
+        <details id="woc-claim-howto" style="margin-bottom:1.25rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.75rem 1rem">
+          <summary style="cursor:pointer;color:#FF7A59;font-weight:700;font-size:0.85rem;user-select:none">📖 How to build your world with Gemini (click to expand)</summary>
+          <div style="margin-top:0.85rem;font-size:0.8rem;color:#6E7191;line-height:1.6">
+            <ol style="margin:0 0 0 1.1rem;padding:0">
+              <li>Pick a creative theme (e.g. "Crystal Cave", "Neon City")</li>
+              <li>Open <strong>gemini.google.com</strong> in a new conversation</li>
+              <li>Copy <strong>Prompt 1</strong> below → paste into Gemini → tweak the preview until you're happy</li>
+              <li>Copy <strong>Prompt 2</strong> in the SAME conversation → Gemini outputs your final world code</li>
+              <li>Paste that code below and submit — the admin will review and approve it</li>
+            </ol>
+            <p style="margin-top:0.6rem">Worlds CAN: shapes, colours, text, animations (1600×1200).<br>Worlds CANNOT: imports, network requests, browser storage.</p>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid #F0E4C8">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Prompt 1 — Design &amp; Preview</strong>
+              <button class="woc-claim-copy-btn" data-target="design" style="padding:0.3rem 0.75rem;background:#FF7A59;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+            <p style="font-size:0.76rem;color:#6E7191;margin-bottom:0">Design your world's look and feel with Gemini, then ask for a live preview.</p>
+          </div>
+          <div style="margin-top:1rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Prompt 2 — Export Rules &amp; Template</strong>
+              <button class="woc-claim-copy-btn" data-target="exportTemplate" style="padding:0.3rem 0.75rem;background:#FF7A59;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+            <p style="font-size:0.76rem;color:#6E7191;margin-bottom:0">Send this in the SAME conversation once the preview looks good — Gemini returns the final file to paste below.</p>
+          </div>
+        </details>
+
         <label style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name (becomes the portal label — max 20 chars)</span>
           <input id="woc-claim-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
@@ -1038,6 +1158,21 @@ export default class WorldScene extends Phaser.Scene {
     document.getElementById('woc-claim-cancel').onclick = () => this._closeClaimOverlay();
     document.getElementById('woc-claim-submit').onclick = () => this._submitClaim();
     wireShareCheckbox('claim', () => this._claimCreationMeta);
+
+    const prompts = this._claimPrompts();
+    el.querySelectorAll('.woc-claim-copy-btn').forEach(btn => {
+      btn.onclick = () => {
+        navigator.clipboard.writeText(prompts[btn.dataset.target])
+          .then(() => {
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+          })
+          .catch(() => {
+            btn.textContent = 'Copy failed';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 2500);
+          });
+      };
+    });
   }
 
   async _openClaimOverlay(slotKey, isUpdate = false) {
@@ -1281,76 +1416,13 @@ export default class WorldScene extends Phaser.Scene {
     if (this._playersOnlinePanelEl) { this._playersOnlinePanelEl.remove(); this._playersOnlinePanelEl = null; }
   }
 
-  // ── Signpost ───────────────────────────────────────────────────────────────
-  _createSignpost() {
-    // Placed beside the hub (not south of it, where the player spawns)
-    const sx = HUB_BOUNDS.cx + HUB_BOUNDS.w / 2 + 150, sy = HUB_BOUNDS.cy;
-
-    this.add.rectangle(sx, sy + 14, 8, 48, 0x5c3a1e).setDepth(8);
-    this.add.rectangle(sx, sy - 6, 80, 44, 0x7a5230).setDepth(8);
-    this.add.rectangle(sx, sy - 6, 74, 38, 0xd4a96a).setDepth(8);
-    this.add.text(sx, sy - 6, 'NOTICE\nBOARD', {
-      fontSize: '9px', fill: '#3d1f00', fontStyle: 'bold', align: 'center',
-    }).setOrigin(0.5).setDepth(9);
-
-    const hitbox = this.add.rectangle(sx, sy + 8, 16, 56, 0x000000, 0);
-    this.physics.add.existing(hitbox, true);
-    this.physics.add.collider(this.player, hitbox);
-
-    this._signHint = this.add.text(sx, sy - 52, '[E] Read notice board', {
-      fontSize: '12px', fill: '#ffff00', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(20).setVisible(false);
-
-    this._signX = sx; this._signY = sy;
-    this._signOpen = false; this._signPage = 0;
-
-    this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
-    this._keyU = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U);
-    this.input.keyboard.on('keydown-ESC', () => {
-      if (this._signOpen) this._closeSignpost();
-      else if (this._claimOpen) this._closeClaimOverlay();
-    });
-
-    this._buildSignpostOverlay();
-  }
-
-  _buildSignpostOverlay() {
-    const CW = 800, CH = 600, cx = CW / 2, cy = CH / 2;
-    const PW = 740, PH = 550, px = cx - PW / 2, py = cy - PH / 2;
-    const fix = obj => obj.setScrollFactor(0).setDepth(70);
-
-    this._sovBg    = fix(this.add.rectangle(cx, cy, CW, CH, 0x000000).setAlpha(0.78).setVisible(false));
-    this._sovPanel = fix(this.add.rectangle(cx, cy, PW, PH, 0x1a0d00).setAlpha(0.97).setVisible(false));
-
-    const gfx = this.add.graphics().setScrollFactor(0).setDepth(71).setVisible(false);
-    gfx.lineStyle(2, 0xc8a46e, 1); gfx.strokeRect(px, py, PW, PH);
-    gfx.lineStyle(1, 0xc8a46e, 0.5);
-    gfx.lineBetween(px + 10, py + 48, px + PW - 10, py + 48);
-    gfx.lineBetween(px + 10, py + PH - 70, px + PW - 10, py + PH - 70);
-    gfx.lineBetween(px + 10, py + PH - 34, px + PW - 10, py + PH - 34);
-    this._sovGfx = gfx;
-
-    this._sovTitle   = fix(this.add.text(cx, py + 15, '', { fontSize: '18px', fill: '#c8a46e', fontStyle: 'bold' }).setOrigin(0.5, 0).setVisible(false));
-    this._sovContent = fix(this.add.text(px + 16, py + 56, '', { fontSize: '13px', fill: '#e0e0e0', lineSpacing: 4 }).setVisible(false));
-
-    this._sovCopyBtn = fix(
-      this.add.text(cx, py + PH - 52, '[ Copy Prompt ]', {
-        fontSize: '14px', fill: '#1a0d00', backgroundColor: '#c8a46e',
-        padding: { x: 16, y: 7 },
-      }).setOrigin(0.5, 0.5).setVisible(false).setInteractive({ useHandCursor: true }),
-    );
-    this._sovCopyBtn.on('pointerover',  () => this._sovCopyBtn.setStyle({ fill: '#000000' }));
-    this._sovCopyBtn.on('pointerout',   () => this._sovCopyBtn.setStyle({ fill: '#1a0d00' }));
-    this._sovCopyBtn.on('pointerdown',  () => this._copyCurrentPrompt());
-
-    this._sovNav     = fix(this.add.text(cx, py + PH - 16, '', { fontSize: '13px', fill: '#c8a46e' }).setOrigin(0.5, 0.5).setVisible(false));
-    this._sovPageNum = fix(this.add.text(px + PW - 12, py + PH - 16, '', { fontSize: '13px', fill: '#888888' }).setOrigin(1, 0.5).setVisible(false));
-
-    this._sovBase = [this._sovBg, this._sovPanel, this._sovGfx, this._sovTitle, this._sovContent, this._sovNav, this._sovPageNum];
-    this._signPages = this._buildSignPages();
-  }
-
-  _buildSignPages() {
+  // ── World-creation prompts (shown inside the claim overlay) ────────────────
+  // Previously lived on a standalone town-square signpost/notice-board the
+  // player had to walk to separately; folded into the claim overlay itself
+  // (see _createClaimOverlay) so the instructions are right there when you
+  // press [E] on an unclaimed portal. The optional mini-game prompt is
+  // deliberately NOT included here — that one lives with [G] in RoomScene.js.
+  _claimPrompts() {
     const PROMPT1 =
       'I want to design a world for a 2D game built with Phaser.js.\n' +
       'My world theme is: [YOUR THEME HERE]\n' +
@@ -1394,9 +1466,13 @@ export default class WorldScene extends Phaser.Scene {
       '  onUpdate   — function(scene) for per-frame animations and the exit check\n' +
       '  onExit     — function(scene) for cleanup (set scene.roomData = null)\n' +
       '\n' +
-      'PLAYER CHARACTER (optional): if your world has a themed character,\n' +
-      'build it in onCreate and assign it to scene.player:\n' +
-      '  scene.player = /* your character container */;\n' +
+      'PLAYER CHARACTER: scene.player already exists before onCreate runs — it\n' +
+      "is the player's own designed character, and always renders that way for\n" +
+      'every visitor, so do not build or assign a custom scene.player. If your\n' +
+      'world wants the player to start somewhere other than the default centre\n' +
+      'spawn, just reposition it (use body.reset, not setPosition, so the\n' +
+      "physics body moves with it):\n" +
+      '  scene.player.body.reset(x, y);\n' +
       '  scene.cameras.main.startFollow(scene.player, true, 0.1, 0.1);\n' +
       '\n' +
       'GAME ANCHOR (optional): if you want a mini-game attached to your world later,\n' +
@@ -1433,27 +1509,15 @@ export default class WorldScene extends Phaser.Scene {
       '  ✅ If you designed a game anchor object, export its position:\n' +
       '       export const gameAnchorX = <x>;\n' +
       '       export const gameAnchorY = <y>;\n' +
-      '  ✅ If you created a themed player character, uncomment createOtherPlayer\n' +
-      '     and fill it with the same shapes (no physics) — see instructions below\n' +
       '  ❌ Do NOT add import, require(), or export default at the top\n' +
       '  ❌ Do NOT wrap in React, HTML, or any framework\n' +
       '  ❌ Do NOT include any explanation, commentary, or code fences\n' +
       '  ❌ Do NOT use fetch(), document, localStorage, or window\n' +
       '\n' +
-      'PLAYER CHARACTER (optional):\n' +
-      'If your world has a themed character, do BOTH of the following:\n' +
-      '  1. In onCreate, build your character and assign it to scene.player:\n' +
-      '       const player = scene.add.container(800, 750);\n' +
-      '       player.add( /* your character shapes */ );\n' +
-      '       scene.physics.world.enable(player);\n' +
-      '       player.body.setCollideWorldBounds(true);\n' +
-      '       scene.player = player;\n' +
-      '       scene.cameras.main.startFollow(player, true, 0.1, 0.1);\n' +
-      '  2. Uncomment createOtherPlayer at the bottom of the template.\n' +
-      '     Fill it with the same character shapes but WITHOUT physics.\n' +
-      '     Set container._labelOffsetY to the pixel height from the\n' +
-      '     container origin (feet) to just above the character\'s head.\n' +
-      'If your world does NOT have a custom character, leave createOtherPlayer commented out.\n' +
+      'PLAYER CHARACTER: scene.player already exists and is always the real\n' +
+      "player's own designed character for every visitor — do not build or\n" +
+      'assign a custom scene.player. Reposition it with body.reset(x, y) if\n' +
+      'your world wants a spawn point other than the default centre.\n' +
       '\n' +
       '--- START OF TEMPLATE ---\n' +
       '\n' +
@@ -1499,253 +1563,8 @@ export default class WorldScene extends Phaser.Scene {
       '  scene.roomData = null;\n' +
       '}\n' +
       '\n' +
-      '// ── Uncomment if you built a themed player character above ───────────\n' +
-      '// export function createOtherPlayer(scene, { x, y }) {\n' +
-      '//   const container = scene.add.container(x, y);\n' +
-      '//   // ── same shapes as your local player, no physics ──────────────\n' +
-      '//   container._labelOffsetY = 48; // pixels from origin to above head\n' +
-      '//   return container;\n' +
-      '// }\n' +
-      '\n' +
       '--- END OF TEMPLATE ---';
 
-    const PROMPT_GAME =
-      'MY WORLD THEME: [YOUR WORLD THEME — e.g. "Crystal Cave", "Underwater World"]\n' +
-      'MY GAME IDEA:   [YOUR GAME IDEA — e.g. "catch falling gems in a basket",\n' +
-      '                 "memory card matching", "dodge scrolling obstacles"]\n' +
-      '\n' +
-      '════════════════════════════════════════════════════════════\n' +
-      'TASK: Generate a mini-game file for a custom game engine.\n' +
-      'The engine calls my functions — I do NOT create a Phaser.Game\n' +
-      'or a Phaser.Scene class. I only fill in a plain JS object.\n' +
-      '════════════════════════════════════════════════════════════\n' +
-      '\n' +
-      'HERE IS A COMPLETE WORKING EXAMPLE — match this structure exactly:\n' +
-      '\n' +
-      '─────────────────────────────────────────────────────────────\n' +
-      "export const game = {\n" +
-      "  gameName: 'Click the Star',\n" +
-      '\n' +
-      '  onGameLoad(scene) {\n' +
-      '    // load images/audio here (leave empty if not needed)\n' +
-      '  },\n' +
-      '\n' +
-      '  onGameCreate(scene) {\n' +
-      '    scene.gameData = { score: 0 };\n' +
-      '\n' +
-      '    scene.gameData.scoreText = scene.add.text(400, 90, "Score: 0", {\n' +
-      "      fontSize: '22px', fill: '#ffffff',\n" +
-      '    }).setOrigin(0.5);\n' +
-      '\n' +
-      '    const target = scene.add.circle(400, 320, 32, 0xffdd00).setInteractive();\n' +
-      '    scene.gameData.target = target;\n' +
-      '\n' +
-      '    target.on("pointerdown", () => {\n' +
-      '      scene.gameData.score += 1;\n' +
-      '      scene.gameData.scoreText.setText("Score: " + scene.gameData.score);\n' +
-      '      target.setPosition(\n' +
-      '        Phaser.Math.Between(60, 740),\n' +
-      '        Phaser.Math.Between(100, 560),\n' +
-      '      );\n' +
-      '      if (scene.gameData.score >= 10) scene.exitGame();\n' +
-      '    });\n' +
-      '  },\n' +
-      '\n' +
-      '  onGameUpdate(scene) {\n' +
-      '    // runs every frame — put timers, movement, collision here\n' +
-      '  },\n' +
-      '\n' +
-      '  onGameExit(scene) {\n' +
-      '    scene.gameData = null; // always clean up\n' +
-      '  },\n' +
-      '};\n' +
-      '─────────────────────────────────────────────────────────────\n' +
-      '\n' +
-      'COORDINATE SPACE: x 0–800, y 65–590  (top 64 px is the title bar — do not draw there)\n' +
-      '\n' +
-      'RULES — the engine will REJECT the file if any of these are broken:\n' +
-      '  ✅ The file must contain ONLY "export const game = { ... };" — nothing before or after\n' +
-      '  ✅ All four methods must exist: onGameLoad, onGameCreate, onGameUpdate, onGameExit\n' +
-      '  ✅ Store ALL game state in scene.gameData (set it in onGameCreate, null it in onGameExit)\n' +
-      '  ✅ Call scene.exitGame() to close the game (on win, lose, or quit)\n' +
-      '  ❌ NO import or require() statements — not even "import Phaser from phaser"\n' +
-      '  ❌ NO new Phaser.Game() or new Phaser.Scene() — the engine already has those\n' +
-      '  ❌ NO class declarations\n' +
-      '  ❌ NO export default — only "export const game"\n' +
-      '  ❌ NO fetch(), document, window, or localStorage\n' +
-      '\n' +
-      'First show me a playable HTML preview of the game so I can test it and request changes.\n' +
-      'Once I am happy, output the final code as a single code block — ONLY the export const game = { ... }; block, nothing else.';
-
-    return [
-      {
-        title: 'HOW TO BUILD YOUR WORLD',
-        body:
-          'World of Codes lets you create your own world using Gemini AI!\n' +
-          'No coding needed — just follow the steps below.\n' +
-          '\n' +
-          'STEPS:\n' +
-          '  1. Pick a creative theme  (e.g. "Crystal Cave", "Neon City")\n' +
-          '\n' +
-          '  2. Open gemini.google.com in a NEW conversation\n' +
-          '\n' +
-          '  3. Copy PROMPT 1 (page 2) → paste into Gemini\n' +
-          '     Gemini builds a live preview — tweak until happy\n' +
-          '\n' +
-          '  4. Copy PROMPT 2 (pages 3–4) in the SAME conversation\n' +
-          '     Gemini outputs your final world code\n' +
-          '\n' +
-          '  5. Walk up to any dim/glowing portal in the town square\n' +
-          '     Press [E] → enter your name + paste your code → Submit!\n' +
-          '\n' +
-          '  6. Your portal appears once the admin approves your world\n' +
-          '     You\'ll get a notification in-game when it\'s ready!\n' +
-          '\n' +
-          'Worlds CAN:    shapes, colours, text, animations (1600×1200)\n' +
-          'Worlds CANNOT: imports, network requests, browser storage',
-      },
-      {
-        title: 'PROMPT 1 — Design & Preview',
-        copyText: PROMPT1,
-        body:
-          'Click "Copy Prompt", replace [YOUR THEME HERE], then paste into Gemini.\n' +
-          '\n' +
-          'I want to design a world for a 2D top-down game built\n' +
-          'with Phaser.js. My world theme is: [YOUR THEME HERE]\n' +
-          '\n' +
-          'PERSPECTIVE: Pokemon/RPG oblique view — sky at top (y:0–300),\n' +
-          'ground below (y:300–1200), objects with visible height.\n' +
-          '\n' +
-          'VISUAL QUALITY:\n' +
-          '  - Strong visual identity — not just plain coloured rectangles\n' +
-          '  - At least one animated focal point (glow, fire, water, particles)\n' +
-          '\n' +
-          'SAFE API: The copied prompt gives Gemini an exact list of Phaser\n' +
-          'methods it may use — prevents hallucinated method names.\n' +
-          '\n' +
-          'Exit zone, exit check, and roomCode structure are all included.\n' +
-          'Show me the preview so I can test it and ask for changes.',
-      },
-      {
-        title: 'PROMPT 2 — Export Rules',
-        copyText: PROMPT2,
-        body:
-          'Click "Copy Prompt" — it includes both these rules AND the template.\n' +
-          'Send this in the SAME conversation after the preview looks good.\n' +
-          '\n' +
-          'Now take the room logic from roomCode and rewrite it using the\n' +
-          'exact template below. Fill only the function bodies.\n' +
-          '\n' +
-          'STRICT RULES:\n' +
-          '  ✅ Return ONLY what is between the template markers\n' +
-          '  ✅ Keep all 5 required export statements exactly as named\n' +
-          '  ✅ Keep the exit trigger in onCreate exactly as shown\n' +
-          '  ✅ Keep the exit check in onUpdate exactly as shown\n' +
-          '  ✅ If you made a game anchor, uncomment gameAnchorX/Y exports\n' +
-          '  ✅ If you made a themed player, uncomment createOtherPlayer\n' +
-          '  ❌ No import, require(), or export default at the top\n' +
-          '  ❌ No React, HTML, or any framework\n' +
-          '  ❌ No explanation, commentary, or code fences\n' +
-          '  ❌ No fetch(), document, localStorage, or window\n' +
-          '\n' +
-          '(Page 4 shows the full template)',
-      },
-      {
-        title: 'PROMPT 2 — Code Template',
-        copyText: PROMPT2,
-        body:
-          'This template is automatically included when you Copy Prompt on page 3.\n' +
-          '\n' +
-          "export const name = 'My World';\n" +
-          '// export const gameAnchorX = 800; // uncomment if you placed a game object\n' +
-          '// export const gameAnchorY = 600;\n' +
-          'export function onLoad(scene) {}\n' +
-          'export function onCreate(scene) {\n' +
-          '  scene.roomData = {};\n' +
-          '  // world design here (1600×1200)\n' +
-          '  // optional: build themed player → assign to scene.player\n' +
-          '  // exit trigger block (exact, as-is)\n' +
-          '}\n' +
-          'export function onUpdate(scene) {\n' +
-          '  // exit check (exact, as-is) + per-frame animations\n' +
-          '}\n' +
-          'export function onExit(scene) { scene.roomData = null; }\n' +
-          '\n' +
-          '// ── Uncomment if you built a themed player ───────────────────\n' +
-          '// export function createOtherPlayer(scene, { x, y }) {\n' +
-          '//   const container = scene.add.container(x, y);\n' +
-          '//   // same shapes as local player, no physics\n' +
-          '//   container._labelOffsetY = 48; // above head in px\n' +
-          '//   return container;\n' +
-          '// }',
-      },
-      {
-        title: 'OPTIONAL: Add a Mini-Game (Prompt B)',
-        copyText: PROMPT_GAME,
-        body:
-          'Want a playable mini-game inside your world? (Club Penguin style!)\n' +
-          '\n' +
-          'BEFORE YOU COPY, decide two things:\n' +
-          '  1. Your game idea — what will players actually do?\n' +
-          '     e.g. "catch falling stars", "memory card flip",\n' +
-          '          "dodge obstacles scrolling toward you"\n' +
-          '  2. Your world theme (same as your room)\n' +
-          '     e.g. "Crystal Cave", "Underwater World"\n' +
-          '\n' +
-          'STEPS:\n' +
-          '  1. Click "Copy Prompt" below\n' +
-          '  2. Paste into a NEW Gemini conversation\n' +
-          '  3. Fill in MY WORLD THEME and MY GAME IDEA at the very top\n' +
-          '  4. Gemini shows a preview — test it, ask for changes\n' +
-          '  5. When happy: copy the final code block Gemini outputs\n' +
-          '  6. Enter your room → walk to your game object → press [G]\n' +
-          '     Paste the code and submit — admin will activate it!\n' +
-          '\n' +
-          'HOW IT WORKS IN-GAME:\n' +
-          '  - Your room file must export gameAnchorX and gameAnchorY\n' +
-          '  - Players walk near that spot → see "[E] ???"\n' +
-          '  - Once your game is approved → "[E] Play: <game name>"',
-      },
-    ];
-  }
-
-  _openSignpost() {
-    this._signOpen = true; this._signPage = 0;
-    this._renderSignPage();
-    for (const el of this._sovBase) el.setVisible(true);
-    this._signHint.setVisible(false);
-  }
-
-  _closeSignpost() {
-    this._signOpen = false;
-    for (const el of this._sovBase) el.setVisible(false);
-    this._sovCopyBtn.setVisible(false);
-  }
-
-  _renderSignPage() {
-    const page  = this._signPages[this._signPage];
-    const total = this._signPages.length;
-    const isLast = this._signPage === total - 1;
-    this._sovTitle.setText(page.title);
-    this._sovContent.setText(page.body);
-    this._sovPageNum.setText(`${this._signPage + 1} / ${total}`);
-    this._sovNav.setText(isLast ? '[←] Back   [E / ESC] Close' : '[←/→] Navigate   [E] Next   [ESC] Close');
-    const hasCopy = !!page.copyText;
-    this._sovCopyBtn.setVisible(hasCopy);
-    if (hasCopy) this._sovCopyBtn.setText('[ Copy Prompt ]');
-  }
-
-  _copyCurrentPrompt() {
-    const page = this._signPages[this._signPage];
-    if (!page.copyText) return;
-    navigator.clipboard.writeText(page.copyText)
-      .then(() => {
-        this._sovCopyBtn.setText('✓ Copied to clipboard!');
-        this.time.delayedCall(1800, () => { if (this._signOpen) this._sovCopyBtn.setText('[ Copy Prompt ]'); });
-      })
-      .catch(() => {
-        this._sovCopyBtn.setText('Copy failed — try a different browser');
-        this.time.delayedCall(2500, () => { if (this._signOpen) this._sovCopyBtn.setText('[ Copy Prompt ]'); });
-      });
+    return { design: PROMPT1, exportTemplate: PROMPT2 };
   }
 }

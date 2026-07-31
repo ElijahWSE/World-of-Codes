@@ -12,7 +12,7 @@
 
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
-import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
+import { createCharacter, updateCharacter, fetchCharacterConfig, applyCharacterConfig } from './CharacterRenderer.js';
 import { createObject, updateObject, setObjectConfig, OBJECT_LIMITS } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
 import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
@@ -71,7 +71,6 @@ export default class RoomScene extends Phaser.Scene {
     // ── In-room Help overlay (Phase 11, player guide) ───────────────────────
     this._helpOverlayEl   = null;
     this._helpOverlayOpen = false;
-    this._helpPage        = 0;
 
     // ── Creative Process Log (Phase 12) ─────────────────────────────────────
     this._processLogOverlayEl   = null;
@@ -117,6 +116,10 @@ export default class RoomScene extends Phaser.Scene {
     // If that happens below, this reference lets us clean up the character
     // container created here — otherwise it's an orphan: still visible,
     // still physics-enabled, just no longer driven by input or animation.
+    // The room's replacement container itself gets reskinned back to the
+    // player's real character afterward (see the applyCharacterConfig call
+    // below) rather than discarded, so its physics body/colliders/position
+    // survive — only this orphaned default gets thrown away outright.
     const defaultPlayerContainer = this.player;
     this.physics.add.existing(this.player);
     // See WorldScene._createPlayer() for why a Container body needs an
@@ -206,41 +209,26 @@ export default class RoomScene extends Phaser.Scene {
             existing.moving  = dx !== 0 || dy !== 0;
             existing.facingX = dx;
             existing.body.setPosition(ps.roomX, ps.roomY);
-            existing.label.setPosition(ps.roomX, ps.roomY - (existing.body._labelOffsetY ?? 24));
+            existing.label.setPosition(ps.roomX, ps.roomY - 24);
           } else {
-            // A room that exports its own createOtherPlayer wants full
-            // control over how visiting players look (e.g. kristabelly.js's
-            // hand-authored Pooh-style residents elsewhere in the room use
-            // this same hook) — that always wins over the player's own
-            // designed character. Rooms that don't export it get the
-            // player's real character instead of a generic gray box.
-            let body;
-            try {
-              body = this._roomModule?.createOtherPlayer?.(this, { name: ps.name, x: ps.roomX, y: ps.roomY });
-              if (body) body.setDepth(10);
-            } catch (e) {
-              console.error('[RoomScene] createOtherPlayer threw:', e);
-              body = null;
-            }
-            const usingRoomBody = !!body;
-            if (!body) body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
+            // Visiting players always render as their own real designed
+            // character, never a room's themed look — starts as a gray
+            // placeholder box while the config fetch is in flight.
+            const body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
 
-            const labelOffsetY = body._labelOffsetY ?? 24;
-            const label = this.add.text(ps.roomX, ps.roomY - labelOffsetY, ps.name, {
+            const label = this.add.text(ps.roomX, ps.roomY - 24, ps.name, {
               fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
             }).setOrigin(0.5).setDepth(15);
             const entry = { body, label, moving: false, facingX: 0, animated: false };
             this._roomPlayers.set(sessionId, entry);
 
-            if (!usingRoomBody) {
-              fetchCharacterConfig(ps.uid).then(config => {
-                if (this._roomPlayers.get(sessionId) !== entry) return;
-                const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(10);
-                entry.body.destroy();
-                entry.body     = container;
-                entry.animated = true;
-              });
-            }
+            fetchCharacterConfig(ps.uid).then(config => {
+              if (this._roomPlayers.get(sessionId) !== entry) return;
+              const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(10);
+              entry.body.destroy();
+              entry.body     = container;
+              entry.animated = true;
+            });
           }
         });
 
@@ -272,46 +260,27 @@ export default class RoomScene extends Phaser.Scene {
       });
     }
 
-    // ── Objects (Phase 11) ────────────────────────────────────────────────────
-    this._addObjectHint = this.add.text(16, this.cameras.main.height - 16, '[O]  Add Object', {
+    // ── Bottom HUD bar ─────────────────────────────────────────────────────────
+    // One translucent-bordered strip of key chips instead of five scattered
+    // corner labels. [O]/[M] are owner-only and toggle with _checkOwnership();
+    // [H]/[P]/[F] are always visible. Contextual/spatial hints (game anchor,
+    // per-object [E]/[C]/[X]) stay floating in-world since they're tied to a
+    // location, not global — only the always-on reference/utility keys move
+    // into this bar. _layoutHudBar() below sizes/centers it around whichever
+    // chips are currently visible.
+    const chipStyle = {
       fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
-      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
-    }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
-
-    // ── Room music submit hint (Phase 11 milestone 4) ───────────────────────
-    // Ambient, owner-only, no anchor — stacked directly above [O] Add Object
-    // so the two owner hints don't overlap.
-    this._addMusicHint = this.add.text(16, this.cameras.main.height - 40, '[M]  Submit Music', {
-      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
-      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
-    }).setOrigin(0, 1).setScrollFactor(0).setDepth(200).setVisible(false);
-
-    // ── In-room Help hint (player guide) ─────────────────────────────────────
-    // Visible to anyone (owner or visitor) — pure reference content, no
-    // server writes, so no ownership gate. Top-right, clear of the top-left
-    // Back button and the bottom-left owner hints.
-    this._helpHint = this.add.text(this.cameras.main.width - 16, 16, '[H]  Help', {
-      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
-      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(200);
-
-    // ── Creative Process Log hint (Phase 12) ──────────────────────────────────
-    // Visible to anyone (owner or visitor) — reading a log has no ownership
-    // gate, only writing does (checked inside the overlay itself). Bottom-
-    // right, clear of the bottom-left owner hints and the top-right Help hint.
-    this._processLogHint = this.add.text(this.cameras.main.width - 16, this.cameras.main.height - 16, '[P]  Process Log', {
-      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
-      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
-    }).setOrigin(1, 1).setScrollFactor(0).setDepth(200);
-
-    // ── Feedback hint (Phase 14) ──────────────────────────────────────────────
-    // Visible to anyone — reading/leaving feedback has no proximity gate,
-    // same "signpost-style" convention as Process Log. Stacked directly
-    // above it so the two bottom-right hints don't overlap.
-    this._feedbackHint = this.add.text(this.cameras.main.width - 16, this.cameras.main.height - 44, '[F]  Feedback', {
-      fontSize: '13px', fill: '#88ccff', stroke: '#000000', strokeThickness: 4,
-      backgroundColor: '#000000cc', padding: { x: 6, y: 3 },
-    }).setOrigin(1, 1).setScrollFactor(0).setDepth(200);
+      padding: { x: 6, y: 3 },
+    };
+    this._hudBarBg = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height - 16, 10, 30, 0x000000, 0.55)
+      .setStrokeStyle(1, 0x88ccff, 0.5)
+      .setScrollFactor(0).setDepth(199);
+    this._addObjectHint  = this.add.text(0, 0, '[O]  Add Object',   chipStyle).setOrigin(0.5).setScrollFactor(0).setDepth(200).setVisible(false);
+    this._addMusicHint   = this.add.text(0, 0, '[M]  Submit Music', chipStyle).setOrigin(0.5).setScrollFactor(0).setDepth(200).setVisible(false);
+    this._helpHint       = this.add.text(0, 0, '[H]  Help',         chipStyle).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+    this._processLogHint = this.add.text(0, 0, '[P]  Process Log',  chipStyle).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+    this._feedbackHint   = this.add.text(0, 0, '[F]  Feedback',     chipStyle).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+    this._layoutHudBar();
 
     this._checkOwnership();
     this._fetchAndDrawObjects();
@@ -446,9 +415,17 @@ export default class RoomScene extends Phaser.Scene {
 
     this._loaded = loadRoom(this._roomModule, this);
 
-    // Clean up the orphaned default character if the room replaced
-    // scene.player with its own — see the comment where it was created.
     if (this.player !== defaultPlayerContainer) {
+      // The room replaced scene.player with its own themed container during
+      // onCreate. Always show the player's real designed character instead —
+      // reskin that same container's visuals in place (rather than swapping
+      // in a brand-new game object) so anything the room already wired up
+      // against this exact container/body — obstacle colliders (e.g.
+      // danielle-world.js's trees, kristabel.js's walls, ming-jian.js's
+      // obstaclesGroup), the exit-zone getBounds() check, y-sort depth — all
+      // keep working. Position, physics body, and depth are untouched.
+      applyCharacterConfig(this, this.player, this._playerCharacterConfig);
+      // The orphaned default created above is no longer needed either way.
       defaultPlayerContainer.destroy();
     }
 
@@ -568,8 +545,7 @@ export default class RoomScene extends Phaser.Scene {
       const { slots } = await res.json();
       const slot  = slots.find(s => s.key === this._roomKey);
       this._isRoomOwner = !!(slot?.uid && slot.uid === this._playerUid);
-      this._addObjectHint?.setVisible(this._isRoomOwner);
-      this._addMusicHint?.setVisible(this._isRoomOwner);
+      this._layoutHudBar();
       // Ownership resolves async and can land after objects are already
       // drawn (see _fetchAndDrawObjects) — re-check every existing entry
       // now that we know for sure.
@@ -579,6 +555,34 @@ export default class RoomScene extends Phaser.Scene {
     } catch (e) {
       console.warn('[RoomScene] Could not check room ownership:', e.message);
     }
+  }
+
+  // (Re)positions the bottom HUD bar's chips left-to-right, centered as a
+  // group, and resizes the translucent background behind them to fit —
+  // called once at create() and again whenever _isRoomOwner resolves/changes
+  // (toggling whether [O]/[M] are part of the group at all).
+  _layoutHudBar() {
+    const chips = [
+      this._isRoomOwner ? this._addObjectHint : null,
+      this._isRoomOwner ? this._addMusicHint  : null,
+      this._helpHint,
+      this._processLogHint,
+      this._feedbackHint,
+    ].filter(Boolean);
+
+    this._addObjectHint?.setVisible(this._isRoomOwner);
+    this._addMusicHint?.setVisible(this._isRoomOwner);
+
+    const gap = 14;
+    const totalWidth = chips.reduce((sum, c) => sum + c.width, 0) + gap * (chips.length - 1);
+    const y = this.cameras.main.height - 16;
+    let x = this.cameras.main.width / 2 - totalWidth / 2;
+    for (const chip of chips) {
+      chip.setPosition(x + chip.width / 2, y);
+      x += chip.width + gap;
+    }
+
+    this._hudBarBg.setPosition(this.cameras.main.width / 2, y).setSize(totalWidth + 24, 30);
   }
 
   // Grants drag interactivity to an object's container, but only for the
@@ -938,6 +942,96 @@ export default class RoomScene extends Phaser.Scene {
     ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
   }
 
+  // Wires every '.woc-copy-btn' inside `el` to copy prompts[btn.dataset.target]
+  // to the clipboard, with the same "Copied!"/"Copy failed" feedback as
+  // WorldScene._createClaimOverlay()'s claim-prompt copy buttons. Shared by
+  // the Game/Object/Music overlays' own collapsible "How to" sections.
+  _wireCopyButtons(el, prompts) {
+    el.querySelectorAll('.woc-copy-btn').forEach(btn => {
+      btn.onclick = () => {
+        navigator.clipboard.writeText(prompts[btn.dataset.target])
+          .then(() => {
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+          })
+          .catch(() => {
+            btn.textContent = 'Copy failed';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 2500);
+          });
+      };
+    });
+  }
+
+  // Gemini prompt for the mini-game template (Phase 7+ separate-game system).
+  _gamePrompt() {
+    return 'MY WORLD THEME: [YOUR WORLD THEME — e.g. "Crystal Cave", "Underwater World"]\n' +
+      'MY GAME IDEA:   [YOUR GAME IDEA — e.g. "catch falling gems in a basket",\n' +
+      '                 "memory card matching", "dodge scrolling obstacles"]\n' +
+      '\n' +
+      '════════════════════════════════════════════════════════════\n' +
+      'TASK: Generate a mini-game file for a custom game engine.\n' +
+      'The engine calls my functions — I do NOT create a Phaser.Game\n' +
+      'or a Phaser.Scene class. I only fill in a plain JS object.\n' +
+      '════════════════════════════════════════════════════════════\n' +
+      '\n' +
+      'HERE IS A COMPLETE WORKING EXAMPLE — match this structure exactly:\n' +
+      '\n' +
+      '─────────────────────────────────────────────────────────────\n' +
+      "export const game = {\n" +
+      "  gameName: 'Click the Star',\n" +
+      '\n' +
+      '  onGameLoad(scene) {\n' +
+      '    // load images/audio here (leave empty if not needed)\n' +
+      '  },\n' +
+      '\n' +
+      '  onGameCreate(scene) {\n' +
+      '    scene.gameData = { score: 0 };\n' +
+      '\n' +
+      '    scene.gameData.scoreText = scene.add.text(400, 90, "Score: 0", {\n' +
+      "      fontSize: '22px', fill: '#ffffff',\n" +
+      '    }).setOrigin(0.5);\n' +
+      '\n' +
+      '    const target = scene.add.circle(400, 320, 32, 0xffdd00).setInteractive();\n' +
+      '    scene.gameData.target = target;\n' +
+      '\n' +
+      '    target.on("pointerdown", () => {\n' +
+      '      scene.gameData.score += 1;\n' +
+      '      scene.gameData.scoreText.setText("Score: " + scene.gameData.score);\n' +
+      '      target.setPosition(\n' +
+      '        Phaser.Math.Between(60, 740),\n' +
+      '        Phaser.Math.Between(100, 560),\n' +
+      '      );\n' +
+      '      if (scene.gameData.score >= 10) scene.exitGame();\n' +
+      '    });\n' +
+      '  },\n' +
+      '\n' +
+      '  onGameUpdate(scene) {\n' +
+      '    // runs every frame — put timers, movement, collision here\n' +
+      '  },\n' +
+      '\n' +
+      '  onGameExit(scene) {\n' +
+      '    scene.gameData = null; // always clean up\n' +
+      '  },\n' +
+      '};\n' +
+      '─────────────────────────────────────────────────────────────\n' +
+      '\n' +
+      'COORDINATE SPACE: x 0–800, y 65–590  (top 64 px is the title bar — do not draw there)\n' +
+      '\n' +
+      'RULES — the engine will REJECT the file if any of these are broken:\n' +
+      '  ✅ The file must contain ONLY "export const game = { ... };" — nothing before or after\n' +
+      '  ✅ All four methods must exist: onGameLoad, onGameCreate, onGameUpdate, onGameExit\n' +
+      '  ✅ Store ALL game state in scene.gameData (set it in onGameCreate, null it in onGameExit)\n' +
+      '  ✅ Call scene.exitGame() to close the game (on win, lose, or quit)\n' +
+      '  ❌ NO import or require() statements — not even "import Phaser from phaser"\n' +
+      '  ❌ NO new Phaser.Game() or new Phaser.Scene() — the engine already has those\n' +
+      '  ❌ NO class declarations\n' +
+      '  ❌ NO export default — only "export const game"\n' +
+      '  ❌ NO fetch(), document, window, or localStorage\n' +
+      '\n' +
+      'First show me a playable HTML preview of the game so I can test it and request changes.\n' +
+      'Once I am happy, output the final code as a single code block — ONLY the export const game = { ... }; block, nothing else.';
+  }
+
   // ── Game Submit Overlay ────────────────────────────────────────────────────
   _createGameOverlay() {
     const el = document.createElement('div');
@@ -950,7 +1044,25 @@ export default class RoomScene extends Phaser.Scene {
     el.innerHTML = `
       <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
         <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Submit Game Code</h2>
-        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1rem">Paste your Gemini-generated mini-game code below. The admin will review and activate the [E] Play button in your world.</p>
+        <details style="margin-bottom:1.25rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.75rem 1rem">
+          <summary style="cursor:pointer;color:#2EC4B6;font-weight:700;font-size:0.85rem;user-select:none">📖 How to build a mini-game with Gemini (click to expand)</summary>
+          <div style="margin-top:0.85rem;font-size:0.8rem;color:#6E7191;line-height:1.6">
+            <ol style="margin:0 0 0 1.1rem;padding:0">
+              <li>Decide your game idea (e.g. "catch falling stars") and reuse your room's theme</li>
+              <li>Copy the prompt below → paste into a NEW Gemini conversation → fill in the two blanks at the top</li>
+              <li>Gemini shows a playable preview — test it, ask for changes</li>
+              <li>Once happy, ask for the final code block and paste it below</li>
+            </ol>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid #F0E4C8">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Mini-Game Prompt</strong>
+              <button class="woc-copy-btn" data-target="game" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+            <p style="font-size:0.76rem;color:#6E7191;margin-bottom:0">One prompt covers both the design/preview step and the final export — same conversation, ask for changes until you're happy, then ask for the final code block.</p>
+          </div>
+        </details>
         <label style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
           <input id="woc-game-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
@@ -973,6 +1085,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-game-cancel').onclick = () => this._closeGameOverlay();
     document.getElementById('woc-game-submit').onclick = () => this._submitGameCode();
     wireShareCheckbox('game', () => this._gameCreationMeta);
+    this._wireCopyButtons(el, { game: this._gamePrompt() });
   }
 
   async _openGameOverlay() {
@@ -1053,6 +1166,90 @@ export default class RoomScene extends Phaser.Scene {
   // is entered via [C] near an owned object and pre-fills its current config.
   // Every decorative object is movable — there's no per-object opt-out, so
   // there's no "Movable" field to show here.
+  // Gemini prompts for both object kinds — Decorative is pure data (JSON
+  // shape list, instant, no review); Interactive is real code (admin-
+  // reviewed, submitted standalone via /api/submit).
+  _objectPrompts() {
+    const L = OBJECT_LIMITS;
+    return {
+      decorativeDesign:
+        'I want to design a decorative object for my room in a 2D game (World of Codes).\n' +
+        'Decorative objects are described as a JSON shape list — rectangles, circles,\n' +
+        'triangles, and polygons, with optional gradients and a simple animation preset.\n\n' +
+        'My object should look like: [DESCRIBE YOUR OBJECT HERE]\n\n' +
+        'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
+        'ask for changes before we finalize — we\'ll convert it to the real format after.',
+      decorativeExport:
+        'Now take the object design we\'ve been iterating on above and output ONLY the\n' +
+        'final shape-config JSON — nothing else. If you showed me an HTML/canvas preview,\n' +
+        'do NOT return that — convert its design into this exact JSON schema instead:\n' +
+        '{\n' +
+        '  "shapes": [\n' +
+        '    { "type": "rect", "x": 0, "y": 0, "w": 20, "h": 20, "color": "#RRGGBB", "gradientTo": null },\n' +
+        '    { "type": "circle", "x": 0, "y": 0, "r": 10, "color": "#RRGGBB" },\n' +
+        '    { "type": "triangle", "x": 0, "y": 0, "x2": 10, "y2": 10, "x3": -10, "y3": 10, "color": "#RRGGBB" },\n' +
+        '    { "type": "polygon", "points": [{"x":0,"y":0},{"x":10,"y":10},{"x":-10,"y":10}], "color": "#RRGGBB" }\n' +
+        '  ],\n' +
+        '  "scale": 1,\n' +
+        '  "animation": "none"\n' +
+        '}\n\n' +
+        'STRICT RULES for the output:\n' +
+        '✅ Return ONLY the JSON object — starting with { and ending with }\n' +
+        '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
+        '❌ Do NOT wrap the JSON in ```code fences```\n' +
+        '❌ Do NOT add any comment, explanation, or text before/after the JSON\n' +
+        `- Up to ${L.MAX_SHAPES} shapes total\n` +
+        '- type must be exactly one of: rect, circle, triangle, polygon\n' +
+        `- x/y (and x2/y2/x3/y3, and each point) must be between -${L.COORD_LIMIT} and ${L.COORD_LIMIT}\n` +
+        `- rect w/h must be between 0 and ${L.SIZE_LIMIT}\n` +
+        `- circle r must be between 0 and ${L.RADIUS_LIMIT}\n` +
+        `- polygon needs 3 to ${L.MAX_POLY_POINTS} points\n` +
+        '- color must be a 6-digit hex string like "#f4a261"\n' +
+        '- gradientTo (optional) is a second hex color for a 2-color gradient fill\n' +
+        `- scale must be between ${L.MIN_SCALE} and ${L.MAX_SCALE}\n` +
+        '- animation must be exactly one of: none, pulse, rotate, drift, colorCycle\n' +
+        '- Coordinates are relative to the object\'s own center (0,0), not the room\n' +
+        '- If any part of the design doesn\'t fit these shape types or limits, simplify it\n' +
+        '  down to the closest fit — I need code I can paste directly, not a preview',
+      interactiveDesign:
+        'I want to design an interactive object for my room in a 2D game (World of Codes),\n' +
+        'built with Phaser.js. Interactive objects are real code that reacts to the player\n' +
+        '(not just simple decoration) — physics, randomness, custom behavior on interact.\n\n' +
+        'My object should do: [DESCRIBE WHAT IT DOES HERE]\n\n' +
+        'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
+        'ask for changes before we finalize — we\'ll convert it to the real format after.',
+      interactiveExport:
+        'Now take the object logic we\'ve been iterating on above and rewrite it using the\n' +
+        'exact template below. Fill in only the body of each function with the behavior\n' +
+        'you already designed. If you showed me an HTML/canvas preview, do NOT return\n' +
+        'that — convert its logic into this exact contract instead:\n\n' +
+        '--- START OF TEMPLATE ---\n' +
+        'export function onLoad(scene) {\n' +
+        '}\n' +
+        'export function onCreate(scene, ctx) {\n' +
+        '  // ctx.x / ctx.y is where this object was placed\n' +
+        '}\n' +
+        'export function onUpdate(scene, ctx) {\n' +
+        '}\n' +
+        'export function onInteract(scene, ctx) {\n' +
+        '}\n' +
+        '// Optional — only if onCreate made extra scene objects needing cleanup:\n' +
+        '// export function onRemove(scene, ctx) {\n' +
+        '// }\n' +
+        '--- END OF TEMPLATE ---\n\n' +
+        'STRICT RULES for the output:\n' +
+        '✅ Return ONLY what is between the template markers — nothing else\n' +
+        '✅ Keep all function names and signatures exactly as shown\n' +
+        '✅ Store any references you need later on ctx (e.g. ctx.sprite = ...) —\n' +
+        '   ctx is the SAME object every call, module-level variables are NOT shared per-object\n' +
+        '✅ Use ONLY scene.add / scene.physics / scene.tweens / scene.time\n' +
+        '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
+        '❌ Do NOT wrap the code in ```code fences```\n' +
+        '❌ Do NOT add import, require(), or export default\n' +
+        '❌ Do NOT use fetch(), document, localStorage, or any explanation/commentary',
+    };
+  }
+
   _createObjectOverlay() {
     const el = document.createElement('div');
     el.id = 'woc-object-overlay';
@@ -1068,7 +1265,37 @@ export default class RoomScene extends Phaser.Scene {
           <button id="woc-object-mode-decorative" style="flex:1;padding:0.4rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Decorative</button>
           <button id="woc-object-mode-interactive" style="flex:1;padding:0.4rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Interactive</button>
         </div>
-        <p id="woc-object-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
+        <p id="woc-object-desc" style="color:#6E7191;font-size:0.82rem;margin-bottom:1rem">Paste a shape-config JSON (ask Gemini to generate one from the object contract). It's placed where you're standing and appears instantly — no admin review needed for decorative objects.</p>
+        <details style="margin-bottom:1.25rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.75rem 1rem">
+          <summary style="cursor:pointer;color:#2EC4B6;font-weight:700;font-size:0.85rem;user-select:none">📖 How to add an object with Gemini (click to expand)</summary>
+          <div style="margin-top:0.85rem;font-size:0.8rem;color:#6E7191;line-height:1.6">
+            <p style="margin:0">Decorative objects are pure data (instant, no review); interactive objects are real code (admin-reviewed). Copy the Design prompt for either → paste into Gemini → iterate → copy the matching Export prompt in the SAME conversation → paste the result above.</p>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid #F0E4C8">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Decorative — Design</strong>
+              <button class="woc-copy-btn" data-target="decorativeDesign" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+          <div style="margin-top:0.85rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Decorative — Export</strong>
+              <button class="woc-copy-btn" data-target="decorativeExport" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+          <div style="margin-top:0.85rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Interactive — Design</strong>
+              <button class="woc-copy-btn" data-target="interactiveDesign" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+          <div style="margin-top:0.85rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Interactive — Export</strong>
+              <button class="woc-copy-btn" data-target="interactiveExport" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+        </details>
         <label id="woc-object-config-label" style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Shape Config (JSON)</span>
           <textarea id="woc-object-config" placeholder='{"shapes":[{"type":"circle","x":0,"y":0,"r":20,"color":"#f4a261"}],"scale":1,"animation":"pulse"}'
@@ -1104,6 +1331,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-object-submit').onclick = () => this._submitObjectConfig();
     document.getElementById('woc-object-mode-decorative').onclick  = () => this._setObjectMode('decorative');
     document.getElementById('woc-object-mode-interactive').onclick = () => this._setObjectMode('interactive');
+    this._wireCopyButtons(el, this._objectPrompts());
   }
 
   // Switches the overlay between Decorative (shape-config JSON, instant, no
@@ -1286,6 +1514,51 @@ export default class RoomScene extends Phaser.Scene {
   // Ambient, owner-only, no anchor — copied near-verbatim from the game
   // overlay trio above (_createGameOverlay/_openGameOverlay/_submitGameCode),
   // since the flow is identical: paste code, POST to /api/submit, admin reviews.
+  // Gemini prompts for room music — generated live with the Web Audio API,
+  // no audio file. Admin-reviewed like a room or game submission.
+  _musicPrompts() {
+    return {
+      design:
+        'I want to design ambient background music for my room in a 2D game (World of Codes).\n' +
+        'Room music is generated live with the Web Audio API — pure synthesis, no audio file.\n\n' +
+        'My music should sound like: [DESCRIBE THE MOOD/STYLE HERE]\n\n' +
+        'Feel free to describe or demo the sound design however is easiest for you (even an\n' +
+        'HTML page with a play button) so I can hear it and ask for changes — we\'ll convert\n' +
+        'it to the real format after.',
+      exportTemplate:
+        'Now take the music we\'ve been iterating on above and rewrite it using the exact\n' +
+        'template below. If you showed me an HTML demo/player, do NOT return that — convert\n' +
+        'its sound design into this exact contract instead, using the Web Audio API:\n\n' +
+        '--- START OF TEMPLATE ---\n' +
+        'let audioCtx = null; // module-level — play() sets it, stop() reads it\n\n' +
+        'export const music = {\n' +
+        '  musicName: \'My Room Music\',\n' +
+        '  play(scene) {\n' +
+        '    // (your AudioContext setup goes here, see rules below)\n' +
+        '  },\n' +
+        '  stop(scene) {\n' +
+        '    audioCtx?.close();\n' +
+        '    audioCtx = null;\n' +
+        '  },\n' +
+        '};\n' +
+        '--- END OF TEMPLATE ---\n\n' +
+        'STRICT RULES for the output:\n' +
+        '✅ Return ONLY what is between the template markers — nothing else\n' +
+        '✅ Keep the exact structure (musicName, play(scene), stop(scene))\n' +
+        '✅ stop() MUST fully silence everything play() started — this is required\n' +
+        '✅ Use ONLY the Web Audio API: new AudioContext(), createOscillator(),\n' +
+        '   createGain(), createBiquadFilter(), node.connect(...), oscillator.start()/stop()\n' +
+        '✅ Call audioCtx.resume() immediately after creating audioCtx — a freshly-created\n' +
+        '   AudioContext can start "suspended" under browser autoplay policy, which produces\n' +
+        '   NO SOUND and no error at all. This is required, not optional.\n' +
+        '✅ Keep the volume LOW (e.g. gain around 0.05) — it plays automatically on entry\n' +
+        '❌ Do NOT reference any audio file/URL\n' +
+        '❌ Do NOT include a <!DOCTYPE>, <html>, <audio>, <script>, or any preview/demo page\n' +
+        '❌ Do NOT wrap the code in ```code fences```\n' +
+        '❌ Do NOT add import, require(), export default, or any explanation/commentary',
+    };
+  }
+
   _createMusicOverlay() {
     const el = document.createElement('div');
     el.id = 'woc-music-overlay';
@@ -1297,7 +1570,25 @@ export default class RoomScene extends Phaser.Scene {
     el.innerHTML = `
       <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;font-family:'Nunito',system-ui,sans-serif">
         <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">Submit Room Music</h2>
-        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1.25rem">Paste your Gemini-generated music code below (ask Gemini to generate one from src/rooms/_music_template.js — see [H] Help for a ready-made prompt). The admin will review it, and it'll play automatically whenever a player enters your room.</p>
+        <p style="color:#6E7191;font-size:0.82rem;margin-bottom:1rem">Paste your Gemini-generated music code below. The admin will review it, and it'll play automatically whenever a player enters your room.</p>
+        <details style="margin-bottom:1.25rem;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:6px;padding:0.75rem 1rem">
+          <summary style="cursor:pointer;color:#2EC4B6;font-weight:700;font-size:0.85rem;user-select:none">📖 How to design room music with Gemini (click to expand)</summary>
+          <div style="margin-top:0.85rem;font-size:0.8rem;color:#6E7191;line-height:1.6">
+            <p style="margin:0">Copy the Design prompt → paste into Gemini → describe the mood/style, ask for changes until happy → copy the Export prompt in the SAME conversation → paste the result above.</p>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid #F0E4C8">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Prompt 1 — Design</strong>
+              <button class="woc-copy-btn" data-target="design" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+          <div style="margin-top:0.85rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem">
+              <strong style="color:#2D3047;font-size:0.82rem">Prompt 2 — Export</strong>
+              <button class="woc-copy-btn" data-target="exportTemplate" style="padding:0.3rem 0.75rem;background:#2EC4B6;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.75rem">Copy</button>
+            </div>
+          </div>
+        </details>
         <label style="display:block;margin-bottom:0.75rem">
           <span style="display:block;color:#6E7191;font-size:0.8rem;margin-bottom:0.3rem">Your Name</span>
           <input id="woc-music-name" type="text" maxlength="20" placeholder="e.g. Alex Chen"
@@ -1320,6 +1611,7 @@ export default class RoomScene extends Phaser.Scene {
     document.getElementById('woc-music-cancel').onclick = () => this._closeMusicOverlay();
     document.getElementById('woc-music-submit').onclick = () => this._submitMusicCode();
     wireShareCheckbox('music', () => this._musicCreationMeta);
+    this._wireCopyButtons(el, this._musicPrompts());
   }
 
   async _openMusicOverlay() {
@@ -1397,204 +1689,37 @@ export default class RoomScene extends Phaser.Scene {
   // (RoomScene has no Phaser-native paged-panel precedent the way
   // WorldScene's notice board does — this keeps one overlay technique per
   // scene rather than importing a second one just for this).
-  _buildHelpPages() {
-    const L = OBJECT_LIMITS;
-    return [
-      {
-        title: 'What you can add to your room',
-        body:
-          'Beyond the room itself, you can add four kinds of things:\n\n' +
-          '🎮  MINI-GAME — [G] near your game anchor spot\n' +
-          '    Real code, admin-reviewed. One per room.\n\n' +
-          '✨  DECORATIVE OBJECT — [O]\n' +
-          '    Just a shape list (JSON) — appears instantly, no review.\n' +
-          '    Move it anytime by dragging, edit it with [C], remove with [X].\n\n' +
-          '⚙️  INTERACTIVE OBJECT — [O] → toggle to "Interactive"\n' +
-          '    Real code with its own behavior — admin-reviewed, but submitted\n' +
-          '    on its own, never touching your room\'s existing code.\n' +
-          '    Press [E] near one to interact, [X] to remove it.\n\n' +
-          '🎵  ROOM MUSIC — [M]\n' +
-          '    Ambient background music, synthesized with the Web Audio API.\n' +
-          '    Admin-reviewed. Plays automatically when a player enters.\n\n' +
-          '📝  PROCESS LOG — [P]\n' +
-          '    Reflect on this room\'s creative journey — past / present /\n' +
-          '    future. Anyone can read it; only you (the owner) can edit it.\n\n' +
-          '💬  FEEDBACK — [F]\n' +
-          '    Anyone can leave feedback on the room (when the admin has\n' +
-          '    online feedback turned on); you can always add your own\n' +
-          '    self-recorded feedback too, and reply to any entry.\n\n' +
-          'The next 6 pages have ready-to-copy Gemini prompts for objects and\n' +
-          'music — a DESIGN prompt to iterate on with Gemini (ask for changes,\n' +
-          'previews, whatever you like), then an EXPORT prompt to run once\n' +
-          'you\'re happy, which forces Gemini to hand back clean code you can\n' +
-          'actually paste in — not a preview, not markdown, not HTML.\n' +
-          'Use [→] to continue.',
-      },
-      {
-        title: 'Prompt 1 — Decorative Object (Design)',
-        body:
-          'A decorative object is pure DATA (a JSON shape list) — approved\n' +
-          'instantly, no admin review. Use this prompt to design and iterate —\n' +
-          'ask Gemini to show you a preview, tweak colors, add shapes, whatever\n' +
-          'you like. When you\'re happy, move to the next page (Export).',
-        copyText:
-          'I want to design a decorative object for my room in a 2D game (World of Codes).\n' +
-          'Decorative objects are described as a JSON shape list — rectangles, circles,\n' +
-          'triangles, and polygons, with optional gradients and a simple animation preset.\n\n' +
-          'My object should look like: [DESCRIBE YOUR OBJECT HERE]\n\n' +
-          'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
-          'ask for changes before we finalize — we\'ll convert it to the real format after.',
-      },
-      {
-        title: 'Prompt 2 — Decorative Object (Export)',
-        body:
-          'Once you\'re happy with the design above, paste this prompt into the\n' +
-          'SAME conversation to force Gemini to hand back clean, paste-ready\n' +
-          'JSON — not the HTML/canvas preview it may have been showing you.\n' +
-          'Paste the result into the [O] overlay\'s Decorative mode.',
-        copyText:
-          'Now take the object design we\'ve been iterating on above and output ONLY the\n' +
-          'final shape-config JSON — nothing else. If you showed me an HTML/canvas preview,\n' +
-          'do NOT return that — convert its design into this exact JSON schema instead:\n' +
-          '{\n' +
-          '  "shapes": [\n' +
-          '    { "type": "rect", "x": 0, "y": 0, "w": 20, "h": 20, "color": "#RRGGBB", "gradientTo": null },\n' +
-          '    { "type": "circle", "x": 0, "y": 0, "r": 10, "color": "#RRGGBB" },\n' +
-          '    { "type": "triangle", "x": 0, "y": 0, "x2": 10, "y2": 10, "x3": -10, "y3": 10, "color": "#RRGGBB" },\n' +
-          '    { "type": "polygon", "points": [{"x":0,"y":0},{"x":10,"y":10},{"x":-10,"y":10}], "color": "#RRGGBB" }\n' +
-          '  ],\n' +
-          '  "scale": 1,\n' +
-          '  "animation": "none"\n' +
-          '}\n\n' +
-          'STRICT RULES for the output:\n' +
-          '✅ Return ONLY the JSON object — starting with { and ending with }\n' +
-          '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
-          '❌ Do NOT wrap the JSON in ```code fences```\n' +
-          '❌ Do NOT add any comment, explanation, or text before/after the JSON\n' +
-          `- Up to ${L.MAX_SHAPES} shapes total\n` +
-          '- type must be exactly one of: rect, circle, triangle, polygon\n' +
-          `- x/y (and x2/y2/x3/y3, and each point) must be between -${L.COORD_LIMIT} and ${L.COORD_LIMIT}\n` +
-          `- rect w/h must be between 0 and ${L.SIZE_LIMIT}\n` +
-          `- circle r must be between 0 and ${L.RADIUS_LIMIT}\n` +
-          `- polygon needs 3 to ${L.MAX_POLY_POINTS} points\n` +
-          '- color must be a 6-digit hex string like "#f4a261"\n' +
-          '- gradientTo (optional) is a second hex color for a 2-color gradient fill\n' +
-          `- scale must be between ${L.MIN_SCALE} and ${L.MAX_SCALE}\n` +
-          '- animation must be exactly one of: none, pulse, rotate, drift, colorCycle\n' +
-          '- Coordinates are relative to the object\'s own center (0,0), not the room\n' +
-          '- If any part of the design doesn\'t fit these shape types or limits, simplify it\n' +
-          '  down to the closest fit — I need code I can paste directly, not a preview',
-      },
-      {
-        title: 'Prompt 1 — Interactive Object (Design)',
-        body:
-          'An interactive object is real code — admin-reviewed, submitted on\n' +
-          'its own, never touching your room\'s existing code. Use this prompt\n' +
-          'to design and iterate. When you\'re happy, move to the next page\n' +
-          '(Export).',
-        copyText:
-          'I want to design an interactive object for my room in a 2D game (World of Codes),\n' +
-          'built with Phaser.js. Interactive objects are real code that reacts to the player\n' +
-          '(not just simple decoration) — physics, randomness, custom behavior on interact.\n\n' +
-          'My object should do: [DESCRIBE WHAT IT DOES HERE]\n\n' +
-          'Feel free to show me a visual preview (e.g. an HTML canvas) so I can see it and\n' +
-          'ask for changes before we finalize — we\'ll convert it to the real format after.',
-      },
-      {
-        title: 'Prompt 2 — Interactive Object (Export)',
-        body:
-          'Once you\'re happy with the design above, paste this prompt into\n' +
-          'the SAME conversation to force Gemini to hand back clean, paste-\n' +
-          'ready code — not an HTML/canvas preview. Paste the result into the\n' +
-          '[O] overlay\'s Interactive mode.',
-        copyText:
-          'Now take the object logic we\'ve been iterating on above and rewrite it using the\n' +
-          'exact template below. Fill in only the body of each function with the behavior\n' +
-          'you already designed. If you showed me an HTML/canvas preview, do NOT return\n' +
-          'that — convert its logic into this exact contract instead:\n\n' +
-          '--- START OF TEMPLATE ---\n' +
-          'export function onLoad(scene) {\n' +
-          '}\n' +
-          'export function onCreate(scene, ctx) {\n' +
-          '  // ctx.x / ctx.y is where this object was placed\n' +
-          '}\n' +
-          'export function onUpdate(scene, ctx) {\n' +
-          '}\n' +
-          'export function onInteract(scene, ctx) {\n' +
-          '}\n' +
-          '// Optional — only if onCreate made extra scene objects needing cleanup:\n' +
-          '// export function onRemove(scene, ctx) {\n' +
-          '// }\n' +
-          '--- END OF TEMPLATE ---\n\n' +
-          'STRICT RULES for the output:\n' +
-          '✅ Return ONLY what is between the template markers — nothing else\n' +
-          '✅ Keep all function names and signatures exactly as shown\n' +
-          '✅ Store any references you need later on ctx (e.g. ctx.sprite = ...) —\n' +
-          '   ctx is the SAME object every call, module-level variables are NOT shared per-object\n' +
-          '✅ Use ONLY scene.add / scene.physics / scene.tweens / scene.time\n' +
-          '❌ Do NOT include a <!DOCTYPE>, <html>, <canvas>, <script>, or any preview/demo code\n' +
-          '❌ Do NOT wrap the code in ```code fences```\n' +
-          '❌ Do NOT add import, require(), or export default\n' +
-          '❌ Do NOT use fetch(), document, localStorage, or any explanation/commentary',
-      },
-      {
-        title: 'Prompt 1 — Room Music (Design)',
-        body:
-          'Room music is generated with the Web Audio API — pure synthesis,\n' +
-          'no audio file. Use this prompt to design and iterate on the sound.\n' +
-          'When you\'re happy, move to the next page (Export).',
-        copyText:
-          'I want to design ambient background music for my room in a 2D game (World of Codes).\n' +
-          'Room music is generated live with the Web Audio API — pure synthesis, no audio file.\n\n' +
-          'My music should sound like: [DESCRIBE THE MOOD/STYLE HERE]\n\n' +
-          'Feel free to describe or demo the sound design however is easiest for you (even an\n' +
-          'HTML page with a play button) so I can hear it and ask for changes — we\'ll convert\n' +
-          'it to the real format after.',
-      },
-      {
-        title: 'Prompt 2 — Room Music (Export)',
-        body:
-          'Once you\'re happy with the sound above, paste this prompt into the\n' +
-          'SAME conversation to force Gemini to hand back clean, paste-ready\n' +
-          'code — not an HTML demo page. Paste the result into the [M] overlay.',
-        copyText:
-          'Now take the music we\'ve been iterating on above and rewrite it using the exact\n' +
-          'template below. If you showed me an HTML demo/player, do NOT return that — convert\n' +
-          'its sound design into this exact contract instead, using the Web Audio API:\n\n' +
-          '--- START OF TEMPLATE ---\n' +
-          'let audioCtx = null; // module-level — play() sets it, stop() reads it\n\n' +
-          'export const music = {\n' +
-          '  musicName: \'My Room Music\',\n' +
-          '  play(scene) {\n' +
-          '    // (your AudioContext setup goes here, see rules below)\n' +
-          '  },\n' +
-          '  stop(scene) {\n' +
-          '    audioCtx?.close();\n' +
-          '    audioCtx = null;\n' +
-          '  },\n' +
-          '};\n' +
-          '--- END OF TEMPLATE ---\n\n' +
-          'STRICT RULES for the output:\n' +
-          '✅ Return ONLY what is between the template markers — nothing else\n' +
-          '✅ Keep the exact structure (musicName, play(scene), stop(scene))\n' +
-          '✅ stop() MUST fully silence everything play() started — this is required\n' +
-          '✅ Use ONLY the Web Audio API: new AudioContext(), createOscillator(),\n' +
-          '   createGain(), createBiquadFilter(), node.connect(...), oscillator.start()/stop()\n' +
-          '✅ Call audioCtx.resume() immediately after creating audioCtx — a freshly-created\n' +
-          '   AudioContext can start "suspended" under browser autoplay policy, which produces\n' +
-          '   NO SOUND and no error at all. This is required, not optional.\n' +
-          '✅ Keep the volume LOW (e.g. gain around 0.05) — it plays automatically on entry\n' +
-          '❌ Do NOT reference any audio file/URL\n' +
-          '❌ Do NOT include a <!DOCTYPE>, <html>, <audio>, <script>, or any preview/demo page\n' +
-          '❌ Do NOT wrap the code in ```code fences```\n' +
-          '❌ Do NOT add import, require(), export default, or any explanation/commentary',
-      },
-    ];
+  // What each key does, plus where to find the ready-to-copy Gemini prompts
+  // for each kind — those now live inside their own overlay ([O]/[M]/[G]'s
+  // collapsible "How to" sections) rather than paginated here, so this is a
+  // single static reference page.
+  _helpOverviewText() {
+    return 'Beyond the room itself, you can add four kinds of things:\n\n' +
+      '🎮  MINI-GAME — [G] near your game anchor spot\n' +
+      '    Real code, admin-reviewed. One per room.\n' +
+      '    Gemini prompt is inside the [G] overlay.\n\n' +
+      '✨  DECORATIVE OBJECT — [O]\n' +
+      '    Just a shape list (JSON) — appears instantly, no review.\n' +
+      '    Move it anytime by dragging, edit it with [C], remove with [X].\n\n' +
+      '⚙️  INTERACTIVE OBJECT — [O] → toggle to "Interactive"\n' +
+      '    Real code with its own behavior — admin-reviewed, but submitted\n' +
+      '    on its own, never touching your room\'s existing code.\n' +
+      '    Press [E] near one to interact, [X] to remove it.\n' +
+      '    Gemini prompts for both object kinds are inside the [O] overlay.\n\n' +
+      '🎵  ROOM MUSIC — [M]\n' +
+      '    Ambient background music, synthesized with the Web Audio API.\n' +
+      '    Admin-reviewed. Plays automatically when a player enters.\n' +
+      '    Gemini prompts are inside the [M] overlay.\n\n' +
+      '📝  PROCESS LOG — [P]\n' +
+      '    Reflect on this room\'s creative journey — past / present /\n' +
+      '    future. Anyone can read it; only you (the owner) can edit it.\n\n' +
+      '💬  FEEDBACK — [F]\n' +
+      '    Anyone can leave feedback on the room (when the admin has\n' +
+      '    online feedback turned on); you can always add your own\n' +
+      '    self-recorded feedback too, and reply to any entry.';
   }
 
   _createHelpOverlay() {
-    this._helpPages = this._buildHelpPages();
-
     const el = document.createElement('div');
     el.id = 'woc-help-overlay';
     el.style.cssText = [
@@ -1604,34 +1729,21 @@ export default class RoomScene extends Phaser.Scene {
     ].join(';');
     el.innerHTML = `
       <div style="background:#FFFFFF;border:1px solid #F0E4C8;border-radius:12px;padding:2rem;width:620px;max-width:95vw;font-family:'Nunito',system-ui,sans-serif">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.5rem">
-          <h2 id="woc-help-title" style="color:#2EC4B6;margin:0;font-size:1.1rem"></h2>
-          <span id="woc-help-pagenum" style="color:#6E7191;font-size:0.8rem"></span>
-        </div>
-        <pre id="woc-help-body" style="color:#2D3047;font-size:0.8rem;font-family:'Courier New',monospace;white-space:pre-wrap;line-height:1.5;max-height:340px;overflow-y:auto;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;padding:0.75rem;margin:0 0 1rem"></pre>
-        <div style="display:flex;gap:0.75rem;justify-content:space-between;align-items:center">
-          <div style="display:flex;gap:0.5rem">
-            <button id="woc-help-prev" style="padding:0.5rem 1rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">← Prev</button>
-            <button id="woc-help-next" style="padding:0.5rem 1rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Next →</button>
-          </div>
-          <button id="woc-help-copy" style="padding:0.5rem 1.25rem;background:#2EC4B6;color:#ffffff;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.8rem">Copy Prompt</button>
+        <h2 style="color:#2EC4B6;margin:0 0 0.5rem;font-size:1.1rem">What you can add to your room</h2>
+        <pre id="woc-help-body" style="color:#2D3047;font-size:0.8rem;font-family:'Courier New',monospace;white-space:pre-wrap;line-height:1.5;max-height:400px;overflow-y:auto;background:#FFF6E4;border:1px solid #F0E4C8;border-radius:4px;padding:0.75rem;margin:0 0 1rem">${this._helpOverviewText()}</pre>
+        <div style="display:flex;justify-content:flex-end">
           <button id="woc-help-close" style="padding:0.5rem 1.25rem;background:#F0E4C8;color:#2D3047;border:none;border-radius:4px;cursor:pointer;font-weight:700;font-size:0.875rem">Close</button>
         </div>
       </div>`;
     document.body.appendChild(el);
     this._helpOverlayEl = el;
     document.getElementById('woc-help-close').onclick = () => this._closeHelpOverlay();
-    document.getElementById('woc-help-prev').onclick  = () => { if (this._helpPage > 0) { this._helpPage--; this._renderHelpPage(); } };
-    document.getElementById('woc-help-next').onclick  = () => { if (this._helpPage < this._helpPages.length - 1) { this._helpPage++; this._renderHelpPage(); } };
-    document.getElementById('woc-help-copy').onclick  = () => this._copyHelpPrompt();
   }
 
   _openHelpOverlay() {
     this.input.keyboard.disableGlobalCapture();
     if (!this._helpOverlayEl) this._createHelpOverlay();
     this._helpOverlayEl.style.display = 'flex';
-    this._helpPage = 0;
-    this._renderHelpPage();
     this._helpOverlayOpen = true;
   }
 
@@ -1639,34 +1751,6 @@ export default class RoomScene extends Phaser.Scene {
     if (this._helpOverlayEl) this._helpOverlayEl.style.display = 'none';
     this.input.keyboard.enableGlobalCapture();
     this._helpOverlayOpen = false;
-  }
-
-  _renderHelpPage() {
-    const page  = this._helpPages[this._helpPage];
-    const total = this._helpPages.length;
-    document.getElementById('woc-help-title').textContent   = page.title;
-    document.getElementById('woc-help-body').textContent    = page.body;
-    document.getElementById('woc-help-pagenum').textContent = `${this._helpPage + 1} / ${total}`;
-    document.getElementById('woc-help-prev').disabled = this._helpPage === 0;
-    document.getElementById('woc-help-next').disabled = this._helpPage === total - 1;
-    const copyBtn = document.getElementById('woc-help-copy');
-    copyBtn.style.display = page.copyText ? 'inline-block' : 'none';
-    copyBtn.textContent = 'Copy Prompt';
-  }
-
-  _copyHelpPrompt() {
-    const page = this._helpPages[this._helpPage];
-    if (!page.copyText) return;
-    const btn = document.getElementById('woc-help-copy');
-    navigator.clipboard.writeText(page.copyText)
-      .then(() => {
-        btn.textContent = '✓ Copied!';
-        setTimeout(() => { if (this._helpOverlayOpen) btn.textContent = 'Copy Prompt'; }, 1800);
-      })
-      .catch(() => {
-        btn.textContent = 'Copy failed';
-        setTimeout(() => { if (this._helpOverlayOpen) btn.textContent = 'Copy Prompt'; }, 2500);
-      });
   }
 
   // ── Creative Process Log (Phase 12) ─────────────────────────────────────────

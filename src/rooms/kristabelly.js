@@ -486,14 +486,9 @@ export function onUpdate(scene) {
 
     scene.player.body.setVelocity(vx, vy);
 
-    if (vx !== 0 || vy !== 0) {
-      const walkBob = Math.sin(scene.time.now * 0.015) * 5;
-      scene.player.list[1].y = walkBob;
-      scene.player.list[0].scaleY = 1 + Math.sin(scene.time.now * 0.015) * 0.08;
-    } else {
-      scene.player.list[1].y = 0;
-      scene.player.list[0].scaleY = 1;
-    }
+    // Walk-bob/squash is handled generically for the player's real
+    // character now (see RoomScene.update()'s updateCharacter() call) — no
+    // per-shape tweaking needed here.
 
     scene.player.setDepth(scene.player.y);
   }
