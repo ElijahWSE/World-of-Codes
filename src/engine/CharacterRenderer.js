@@ -180,9 +180,22 @@ function drawShapes(gfx, config, { legSwing = 0, topSway = 0, blinking = false }
 // container's own x/y, so it can never interfere with physics, collision,
 // or the position that gets broadcast over the network.
 export function createCharacter(scene, rawConfig, x = 0, y = 0) {
-  const config    = sanitizeConfig(rawConfig ?? FALLBACK_CONFIG);
   const container = scene.add.container(x, y);
-  const gfx       = scene.add.graphics();
+  applyCharacterConfig(scene, container, rawConfig);
+  return container;
+}
+
+// Reskins an *existing* container in place as the player's real character —
+// used when a room's onCreate has already built its own themed player
+// container (with a physics body, colliders, exit-zone checks, and y-sort
+// depth all wired up against that exact object) and the engine needs to
+// swap in the player's real design without invalidating any of that. Only
+// the container's visual children are replaced; position, physics body, and
+// any external references to the container itself are left untouched.
+export function applyCharacterConfig(scene, container, rawConfig) {
+  const config = sanitizeConfig(rawConfig ?? FALLBACK_CONFIG);
+  container.removeAll(true); // destroy whatever the room drew inside it
+  const gfx = scene.add.graphics();
   container.add(gfx);
 
   container.characterConfig = config;
@@ -198,7 +211,6 @@ export function createCharacter(scene, rawConfig, x = 0, y = 0) {
   };
 
   drawShapes(gfx, config);
-  return container;
 }
 
 // Call every frame from the owning scene's update(). `moving` should be true

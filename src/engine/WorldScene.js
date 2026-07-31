@@ -1356,9 +1356,13 @@ export default class WorldScene extends Phaser.Scene {
       '  onUpdate   — function(scene) for per-frame animations and the exit check\n' +
       '  onExit     — function(scene) for cleanup (set scene.roomData = null)\n' +
       '\n' +
-      'PLAYER CHARACTER (optional): if your world has a themed character,\n' +
-      'build it in onCreate and assign it to scene.player:\n' +
-      '  scene.player = /* your character container */;\n' +
+      'PLAYER CHARACTER: scene.player already exists before onCreate runs — it\n' +
+      "is the player's own designed character, and always renders that way for\n" +
+      'every visitor, so do not build or assign a custom scene.player. If your\n' +
+      'world wants the player to start somewhere other than the default centre\n' +
+      'spawn, just reposition it (use body.reset, not setPosition, so the\n' +
+      "physics body moves with it):\n" +
+      '  scene.player.body.reset(x, y);\n' +
       '  scene.cameras.main.startFollow(scene.player, true, 0.1, 0.1);\n' +
       '\n' +
       'GAME ANCHOR (optional): if you want a mini-game attached to your world later,\n' +
@@ -1395,27 +1399,15 @@ export default class WorldScene extends Phaser.Scene {
       '  ✅ If you designed a game anchor object, export its position:\n' +
       '       export const gameAnchorX = <x>;\n' +
       '       export const gameAnchorY = <y>;\n' +
-      '  ✅ If you created a themed player character, uncomment createOtherPlayer\n' +
-      '     and fill it with the same shapes (no physics) — see instructions below\n' +
       '  ❌ Do NOT add import, require(), or export default at the top\n' +
       '  ❌ Do NOT wrap in React, HTML, or any framework\n' +
       '  ❌ Do NOT include any explanation, commentary, or code fences\n' +
       '  ❌ Do NOT use fetch(), document, localStorage, or window\n' +
       '\n' +
-      'PLAYER CHARACTER (optional):\n' +
-      'If your world has a themed character, do BOTH of the following:\n' +
-      '  1. In onCreate, build your character and assign it to scene.player:\n' +
-      '       const player = scene.add.container(800, 750);\n' +
-      '       player.add( /* your character shapes */ );\n' +
-      '       scene.physics.world.enable(player);\n' +
-      '       player.body.setCollideWorldBounds(true);\n' +
-      '       scene.player = player;\n' +
-      '       scene.cameras.main.startFollow(player, true, 0.1, 0.1);\n' +
-      '  2. Uncomment createOtherPlayer at the bottom of the template.\n' +
-      '     Fill it with the same character shapes but WITHOUT physics.\n' +
-      '     Set container._labelOffsetY to the pixel height from the\n' +
-      '     container origin (feet) to just above the character\'s head.\n' +
-      'If your world does NOT have a custom character, leave createOtherPlayer commented out.\n' +
+      'PLAYER CHARACTER: scene.player already exists and is always the real\n' +
+      "player's own designed character for every visitor — do not build or\n" +
+      'assign a custom scene.player. Reposition it with body.reset(x, y) if\n' +
+      'your world wants a spawn point other than the default centre.\n' +
       '\n' +
       '--- START OF TEMPLATE ---\n' +
       '\n' +
@@ -1460,14 +1452,6 @@ export default class WorldScene extends Phaser.Scene {
       'export function onExit(scene) {\n' +
       '  scene.roomData = null;\n' +
       '}\n' +
-      '\n' +
-      '// ── Uncomment if you built a themed player character above ───────────\n' +
-      '// export function createOtherPlayer(scene, { x, y }) {\n' +
-      '//   const container = scene.add.container(x, y);\n' +
-      '//   // ── same shapes as your local player, no physics ──────────────\n' +
-      '//   container._labelOffsetY = 48; // pixels from origin to above head\n' +
-      '//   return container;\n' +
-      '// }\n' +
       '\n' +
       '--- END OF TEMPLATE ---';
 

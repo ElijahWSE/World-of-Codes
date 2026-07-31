@@ -12,7 +12,7 @@
 
 import Phaser from 'phaser';
 import { loadRoom } from '../room-loader/RoomLoader.js';
-import { createCharacter, updateCharacter, fetchCharacterConfig } from './CharacterRenderer.js';
+import { createCharacter, updateCharacter, fetchCharacterConfig, applyCharacterConfig } from './CharacterRenderer.js';
 import { createObject, updateObject, setObjectConfig, OBJECT_LIMITS } from './ObjectRenderer.js';
 import { getFreshIdToken } from '../auth/session.js';
 import { buildSharingFieldsHTML, refreshSharingFields, readSharingFields, wireShareCheckbox } from './creationSharing.js';
@@ -117,6 +117,10 @@ export default class RoomScene extends Phaser.Scene {
     // If that happens below, this reference lets us clean up the character
     // container created here — otherwise it's an orphan: still visible,
     // still physics-enabled, just no longer driven by input or animation.
+    // The room's replacement container itself gets reskinned back to the
+    // player's real character afterward (see the applyCharacterConfig call
+    // below) rather than discarded, so its physics body/colliders/position
+    // survive — only this orphaned default gets thrown away outright.
     const defaultPlayerContainer = this.player;
     this.physics.add.existing(this.player);
     // See WorldScene._createPlayer() for why a Container body needs an
@@ -206,41 +210,26 @@ export default class RoomScene extends Phaser.Scene {
             existing.moving  = dx !== 0 || dy !== 0;
             existing.facingX = dx;
             existing.body.setPosition(ps.roomX, ps.roomY);
-            existing.label.setPosition(ps.roomX, ps.roomY - (existing.body._labelOffsetY ?? 24));
+            existing.label.setPosition(ps.roomX, ps.roomY - 24);
           } else {
-            // A room that exports its own createOtherPlayer wants full
-            // control over how visiting players look (e.g. kristabelly.js's
-            // hand-authored Pooh-style residents elsewhere in the room use
-            // this same hook) — that always wins over the player's own
-            // designed character. Rooms that don't export it get the
-            // player's real character instead of a generic gray box.
-            let body;
-            try {
-              body = this._roomModule?.createOtherPlayer?.(this, { name: ps.name, x: ps.roomX, y: ps.roomY });
-              if (body) body.setDepth(10);
-            } catch (e) {
-              console.error('[RoomScene] createOtherPlayer threw:', e);
-              body = null;
-            }
-            const usingRoomBody = !!body;
-            if (!body) body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
+            // Visiting players always render as their own real designed
+            // character, never a room's themed look — starts as a gray
+            // placeholder box while the config fetch is in flight.
+            const body = this.add.rectangle(ps.roomX, ps.roomY, 32, 32, 0x888888).setDepth(10);
 
-            const labelOffsetY = body._labelOffsetY ?? 24;
-            const label = this.add.text(ps.roomX, ps.roomY - labelOffsetY, ps.name, {
+            const label = this.add.text(ps.roomX, ps.roomY - 24, ps.name, {
               fontSize: '12px', fill: '#bbbbbb', stroke: '#000000', strokeThickness: 2,
             }).setOrigin(0.5).setDepth(15);
             const entry = { body, label, moving: false, facingX: 0, animated: false };
             this._roomPlayers.set(sessionId, entry);
 
-            if (!usingRoomBody) {
-              fetchCharacterConfig(ps.uid).then(config => {
-                if (this._roomPlayers.get(sessionId) !== entry) return;
-                const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(10);
-                entry.body.destroy();
-                entry.body     = container;
-                entry.animated = true;
-              });
-            }
+            fetchCharacterConfig(ps.uid).then(config => {
+              if (this._roomPlayers.get(sessionId) !== entry) return;
+              const container = createCharacter(this, config, entry.body.x, entry.body.y).setDepth(10);
+              entry.body.destroy();
+              entry.body     = container;
+              entry.animated = true;
+            });
           }
         });
 
@@ -446,9 +435,17 @@ export default class RoomScene extends Phaser.Scene {
 
     this._loaded = loadRoom(this._roomModule, this);
 
-    // Clean up the orphaned default character if the room replaced
-    // scene.player with its own — see the comment where it was created.
     if (this.player !== defaultPlayerContainer) {
+      // The room replaced scene.player with its own themed container during
+      // onCreate. Always show the player's real designed character instead —
+      // reskin that same container's visuals in place (rather than swapping
+      // in a brand-new game object) so anything the room already wired up
+      // against this exact container/body — obstacle colliders (e.g.
+      // danielle-world.js's trees, kristabel.js's walls, ming-jian.js's
+      // obstaclesGroup), the exit-zone getBounds() check, y-sort depth — all
+      // keep working. Position, physics body, and depth are untouched.
+      applyCharacterConfig(this, this.player, this._playerCharacterConfig);
+      // The orphaned default created above is no longer needed either way.
       defaultPlayerContainer.destroy();
     }
 
